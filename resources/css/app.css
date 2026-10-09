@@ -1,0 +1,171 @@
+@import 'tailwindcss';
+/* Self-hosted variable fonts (no Google Fonts request; works offline and on slow café Wi-Fi) */
+@import '@fontsource-variable/instrument-sans';
+@import '@fontsource-variable/bricolage-grotesque/opsz.css';
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../vendor/livewire/livewire/src/**/*.blade.php';
+@source '../../storage/framework/views/*.php';
+@source '../**/*.blade.php';
+@source '../**/*.js';
+@source '../../app/**/*.php';
+
+/*
+ |--------------------------------------------------------------------------
+ | KaffeTrack design tokens — "coffee plant" palette
+ |--------------------------------------------------------------------------
+ | pine   : sidebar, dark surfaces          leaf  : primary actions
+ | sage   : tints, selected states, hovers  paper : app background
+ | crema  : sparing accent (queue numbers, receipt)  ink : text
+ | Semantic colours (success/warning/danger/info) are tuned to sit with the greens
+ | and every text/background pair meets WCAG AA contrast.
+ */
+@theme {
+    --font-sans: 'Instrument Sans Variable', 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
+    --font-display: 'Bricolage Grotesque Variable', 'Bricolage Grotesque', 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
+
+    --color-pine-950: #0f261d;
+    --color-pine-900: #173a2c;
+    --color-pine-800: #1f4a39;
+    --color-pine-700: #285c47;
+
+    --color-leaf-50: #f1f7f2;
+    --color-leaf-100: #e1eee4;
+    --color-leaf-200: #c3dcc9;
+    --color-leaf-300: #98c1a3;
+    --color-leaf-400: #63a079;
+    --color-leaf-500: #3f845c;
+    --color-leaf-600: #2f6b4f;
+    --color-leaf-700: #275840;
+    --color-leaf-800: #214635;
+
+    --color-sage-50: #f5f7f3;   /* paper */
+    --color-sage-100: #eaf1eb;  /* mist  */
+    --color-sage-200: #dce5de;  /* borders */
+    --color-sage-300: #c4d1c7;
+    --color-sage-400: #95a69a;
+    --color-sage-500: #6b7d71;
+    --color-sage-600: #4f6056;
+    --color-sage-700: #3a4840;
+
+    --color-ink: #1a2520;
+    --color-crema-100: #f6ebdd;
+    --color-crema-500: #b57a3e;
+    --color-crema-700: #87572a;
+
+    --color-warn-50: #fdf6e7;
+    --color-warn-600: #a3660f;
+    --color-warn-700: #85520b;
+    --color-danger-50: #fbefed;
+    --color-danger-600: #b4443a;
+    --color-danger-700: #93342c;
+    --color-info-50: #edf4f8;
+    --color-info-600: #2e6a8e;
+
+    --radius-panel: 14px;
+    --radius-field: 10px;
+
+    --animate-toast-in: toast-in 220ms cubic-bezier(.2, .8, .2, 1);
+    --animate-pop: pop 260ms cubic-bezier(.2, .9, .3, 1.3);
+    --animate-shake: shake 360ms ease-in-out;
+}
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateY(-8px) scale(.98); }
+    to { opacity: 1; transform: none; }
+}
+@keyframes pop {
+    0% { transform: scale(.96); }
+    60% { transform: scale(1.02); }
+    100% { transform: scale(1); }
+}
+@keyframes shake {
+    20%, 60% { transform: translateX(-5px); }
+    40%, 80% { transform: translateX(5px); }
+}
+
+
+/* Base shapes reused by @apply must be utilities in Tailwind v4 */
+@utility btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-[var(--radius-field)] px-4 py-2.5 text-sm font-semibold transition disabled:opacity-55 disabled:cursor-not-allowed select-none whitespace-nowrap;
+}
+@utility badge {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap;
+}
+
+@layer base {
+    html { -webkit-font-smoothing: antialiased; }
+    body { @apply bg-sage-50 text-ink font-sans; font-feature-settings: 'ss01'; }
+    h1, h2, h3, .font-display { font-family: var(--font-display); letter-spacing: -0.01em; }
+    [x-cloak] { display: none !important; }
+    :focus-visible { outline: 2px solid var(--color-leaf-500); outline-offset: 2px; }
+    ::selection { background: var(--color-leaf-200); }
+    .tabular { font-variant-numeric: tabular-nums; }
+}
+
+@layer components {
+    /* Surfaces */
+    .panel { @apply bg-white border border-sage-200 rounded-[var(--radius-panel)]; }
+    .panel-header { @apply flex items-center justify-between gap-3 px-5 py-4 border-b border-sage-200; }
+    .panel-title { @apply font-display text-[1.05rem] font-semibold text-ink; }
+
+    /* Buttons — size is driven by padding so touch targets stay ≥ 40px */
+    .btn-primary { @apply btn bg-leaf-600 text-white hover:bg-leaf-700 active:bg-leaf-800 shadow-[0_1px_0_rgba(15,38,29,.25)]; }
+    .btn-secondary { @apply btn bg-white text-ink border border-sage-300 hover:bg-sage-100 hover:border-sage-400; }
+    .btn-ghost { @apply btn text-sage-700 hover:bg-sage-100; }
+    .btn-danger { @apply btn bg-danger-600 text-white hover:bg-danger-700; }
+    .btn-warn { @apply btn bg-warn-600 text-white hover:bg-warn-700; }
+    .btn-sm { @apply px-3 py-1.5 text-[13px]; }
+    .btn-lg { @apply px-5 py-3 text-base; }
+    .btn-icon { @apply btn p-2 text-sage-600 hover:bg-sage-100 hover:text-ink; }
+
+    /* Form fields */
+    .field-label { @apply block text-sm font-medium text-sage-700 mb-1.5; }
+    .field { @apply block w-full rounded-[var(--radius-field)] border border-sage-300 bg-white px-3.5 py-2.5 text-[15px] text-ink
+        placeholder:text-sage-400 transition
+        focus:border-leaf-500 focus:outline-none focus:ring-4 focus:ring-leaf-100
+        disabled:bg-sage-100 disabled:text-sage-500; }
+    .field-error { @apply border-danger-600 focus:border-danger-600 focus:ring-danger-50; }
+    .field-help { @apply mt-1.5 text-xs text-sage-500; }
+    .field-message { @apply mt-1.5 flex items-start gap-1.5 text-[13px] text-danger-700; }
+
+    /* Tables */
+    .table { @apply w-full text-sm; }
+    .table thead th { @apply bg-sage-50 px-4 py-3 text-left text-[13px] font-semibold text-sage-600 border-b border-sage-200 whitespace-nowrap; }
+    .table tbody td { @apply px-4 py-3 border-b border-sage-100 align-middle; }
+    .table tbody tr { @apply transition-colors; }
+    .table tbody tr:hover { @apply bg-sage-50/70; }
+    .table tbody tr:last-child td { @apply border-b-0; }
+
+    /* Badges */
+    .badge-green { @apply badge bg-leaf-100 text-leaf-800; }
+    .badge-amber { @apply badge bg-warn-50 text-warn-700 ring-1 ring-inset ring-warn-600/20; }
+    .badge-red { @apply badge bg-danger-50 text-danger-700 ring-1 ring-inset ring-danger-600/20; }
+    .badge-blue { @apply badge bg-info-50 text-info-600 ring-1 ring-inset ring-info-600/20; }
+    .badge-gray { @apply badge bg-sage-100 text-sage-600; }
+    .badge-crema { @apply badge bg-crema-100 text-crema-700; }
+
+    /* Navigation */
+    .nav-link { @apply flex items-center gap-3 rounded-[10px] px-3 py-2 text-[14px] font-medium text-leaf-100/80 transition
+        hover:bg-white/8 hover:text-white; }
+    .nav-link[aria-current='page'] { @apply bg-white/12 text-white; box-shadow: inset 3px 0 0 var(--color-leaf-300); }
+    .nav-group { @apply px-3 pt-5 pb-1.5 text-[12px] font-semibold text-leaf-300/70; }
+
+    /* Tabs (segmented) */
+    .tabs { @apply inline-flex rounded-[12px] bg-sage-100 p-1 gap-1; }
+    .tab { @apply rounded-[9px] px-3.5 py-1.5 text-sm font-semibold text-sage-600 transition hover:text-ink; }
+    .tab[aria-selected='true'] { @apply bg-white text-ink shadow-[0_1px_2px_rgba(26,37,32,.12)]; }
+
+    /* POS order ticket: perforated paper edge */
+    .ticket { @apply relative bg-white; }
+    .ticket::before {
+        content: ''; position: absolute; left: 0; right: 0; top: -7px; height: 14px;
+        background: radial-gradient(circle at 7px 0, transparent 6px, white 6.5px) repeat-x;
+        background-size: 14px 14px;
+    }
+    .skeleton { @apply animate-pulse rounded-md bg-sage-200/70; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+}
