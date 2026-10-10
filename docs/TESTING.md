@@ -70,25 +70,26 @@ errors and no browser console errors. At 390 px width no page scrolls horizontal
 - Income statement (Sept 2026): gross ₱329,530.00 − ₱6,934.72 = net sales ₱322,595.28; + ₱15,600 other
   income = ₱338,195.28; expenses ₱261,013.00; net income ₱77,182.28 (22.8 %).
 
-## Sales ↔ Inventory integration
+## Sales ↔ Inventory integration (end-of-shift stock check, Update 3)
 
 | # | Steps | Expected |
 |---|---|---|
-| SI-1 | Products → edit Café Latte | "Uses from inventory" lists espresso → House Blend Beans, milk → Fresh Milk |
+| SI-1 | Products → edit Café Latte | "Uses from inventory" lists espresso → House Blend Beans, milk → Fresh Milk (no amounts) |
 | SI-2 | Add an empty ingredient row → Save | Errors: role and item required; nothing saved |
-| SI-3 | Stock on hand → Fresh Milk → Stock out | Open unit shows "0 drinks served · usually ~N" |
-| SI-4 | Sell Café Latte, mark Ready in the queue | Fresh Milk and Beans open units +1 drink |
-| SI-5 | Sell Café Latte + Oat milk, mark Ready | Oat Milk +1; Fresh Milk unchanged |
-| SI-6 | Sell Americano + Extra shot ×2, mark Ready | Beans +4 (2 drinks × 2 servings) |
-| SI-7 | Keep selling lattes | Toast + bell at the alert % (once), again at 100 % (once); meter turns amber, then red |
-| SI-8 | Click "I checked — still enough" | Threshold alert leaves the bell; 100 % notice still appears later |
-| SI-9 | Mark Fresh Milk depleted, sell a latte, mark Ready | Prompt "No open unit recorded"; *Open it now* opens a carton and counts the drink |
-| SI-10 | Same, choose *Mark ready anyway* | Warning toast; bell shows "drink(s) made today with no open unit recorded" |
-| SI-11 | Cancel an unpaid order before Ready | No drink counted |
-| SI-12 | Refund an order after Ready | Drink stays counted |
-| SI-13 | As manager, unit far past usual (≥150 %) | Bell "Review"; Stock on hand ⋯ → *Review over-usage…* requires a reason; audit log entry; unit left out of the usual count |
-| SI-14 | Reports → Inventory PDF | Section "Drinks served per opened unit (estimate)" |
-
+| SI-3 | Sell Café Latte, mark Ready in the queue | No inventory prompt or toast; order goes to Ready |
+| SI-4 | Stock on hand → Fresh Milk → Stock out twice | Second toast: "The previous one was marked as used up"; only one unit open |
+| SI-5 | Cash drawer → End-of-day count | Step 1 Stock check lists Beans, Fresh Milk (and Oat Milk if an oat latte was sold) |
+| SI-6 | Click Review counts with nothing filled | Every item asks for a count and the open-unit answer; nothing saved |
+| SI-7 | Fresh Milk: count 2 fewer than the system, "Still has some" → Review | "2 stocked out (1 finished) · open carton stays open" |
+| SI-8 | Oat Milk: count 1 fewer, thrown away 1, "Empty / none" → Review | "1 thrown away · open carton marked finished" |
+| SI-9 | Any item: count more than the system | "More than recorded — check for a delivery not entered; stock unchanged" |
+| SI-10 | Record stock check | Toast with totals; Stock movements show the stock-outs/waste with "end-of-shift check (shift #N)"; Step 2 Cash count opens |
+| SI-11 | Try to close the drawer before the check (another device) | "Finish the end-of-shift stock check first" |
+| SI-12 | Cancel an unpaid order while still pending | Its items are not listed in the check |
+| SI-13 | Closed shift → Details | "End-of-shift stock check" table with system/counted/recorded |
+| SI-14 | Reports → Inventory PDF | "End-of-shift stock checks": matched count and every difference |
+| SI-15 | Reports → Financial PDF | "Sales vs cost of stock used": net sales, cost of units opened and thrown away, % of sales |
+| SI-16 | POS: a drink whose item has 0 in storage and none open | "*Item*: none in stock — check before confirming"; the sale still goes through |
 
 ## Update 2 — validation and safety
 

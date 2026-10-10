@@ -106,9 +106,10 @@ Open http://127.0.0.1:8000. While editing CSS or JS, run `npm run dev` in a seco
 
 ## Sales ↔ Inventory link (how stock and sales connect)
 
-Products list which inventory items they use (no amounts). When a drink is marked Ready, it is counted
-against that item's open unit, and the system warns before the unit usually runs out. It is an estimate
-only: staff still check the container, and nothing blocks a sale. Details: `docs/SALES-INVENTORY.md`.
+Products list which inventory items they use (no amounts). Staff never deal with inventory while taking
+orders; when the cash drawer is closed, KaffeTrack lists the items that shift's sales used, staff count
+the sealed units left, and any difference is recorded as stock-outs or waste under their name. No
+estimates, and nothing blocks a sale. Details: `docs/SALES-INVENTORY.md`.
 
 ## More documentation
 

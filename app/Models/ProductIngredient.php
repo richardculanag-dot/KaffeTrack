@@ -14,12 +14,7 @@ class ProductIngredient extends Model
     /** Suggested role names; any short label works. */
     public const ROLES = ['espresso', 'milk', 'base', 'sweetener', 'sauce', 'topping', 'other'];
 
-    protected $fillable = ['product_id', 'inventory_item_id', 'role', 'servings'];
-
-    protected function casts(): array
-    {
-        return ['servings' => 'float'];
-    }
+    protected $fillable = ['product_id', 'inventory_item_id', 'role'];
 
     public function product(): BelongsTo
     {

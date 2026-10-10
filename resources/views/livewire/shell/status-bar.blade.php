@@ -32,9 +32,7 @@
                     <li class="flex gap-3 px-4 py-3">
                         <span class="mt-1.5 size-2 shrink-0 rounded-full {{ $alert['tone'] === 'red' ? 'bg-danger-600' : 'bg-warn-600' }}"></span>
                         <div class="min-w-0 text-sm">
-                            <p class="font-semibold">{{ $alert['title'] }}
-                                @isset($alert['tag'])<span class="ml-1 rounded-full bg-sage-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sage-600">{{ $alert['tag'] }}</span>@endisset
-                            </p>
+                            <p class="font-semibold">{{ $alert['title'] }}</p>
                             <p class="text-sage-600">{{ $alert['text'] }}</p>
                         </div>
                     </li>

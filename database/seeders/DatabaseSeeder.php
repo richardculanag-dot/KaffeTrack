@@ -25,7 +25,7 @@ class DatabaseSeeder extends Seeder
             $this->call(DemoHistorySeeder::class);
         }
 
-        // Demo links between menu and inventory (after history, so past units get demo counts).
+        // Menu ↔ inventory links (after history, so recent demo orders and shifts get their stock checks).
         $this->call(SalesInventoryLinkSeeder::class);
     }
 }

@@ -24,7 +24,6 @@ class Setting extends Model
         'receipt_footer' => 'Thank you for visiting HEIM! Please come again.',
         'currency_symbol' => '₱',
         'table_count' => '10',
-        'servings_alert_percent' => '80',
     ];
 
     /** Read a setting (cached for the request lifecycle + 10 minutes). */

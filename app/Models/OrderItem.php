@@ -43,7 +43,7 @@ class OrderItem extends Model
         return $this->hasMany(OrderItemAddon::class);
     }
 
-    /** Inventory items this line used, and the open units they were counted against. */
+    /** Inventory items this line used (listed in the end-of-shift stock check). */
     public function ingredients(): HasMany
     {
         return $this->hasMany(OrderItemIngredient::class);

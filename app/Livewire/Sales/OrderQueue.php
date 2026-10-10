@@ -7,9 +7,7 @@ use App\Models\Order;
 use App\Models\Payment;
 use App\Models\User;
 use App\Services\AuditLogger;
-use App\Services\InventoryService;
 use App\Services\OrderService;
-use App\Services\ServingTracker;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Locked;
@@ -34,13 +32,6 @@ class OrderQueue extends Component
 
     // Order details slide-over
     public ?int $viewingId = null;
-
-    // "Mark ready" prompt when a drink uses an item with no open unit (Sales ↔ Inventory link)
-    public bool $showReadyPrompt = false;
-    #[Locked] // set only by the server (open/edit methods), never by the browser
-    public ?int $readyPromptId = null;
-    /** @var array<int, array{name:string, unit:string, in_storage:int}> */
-    public array $readyPromptItems = [];
 
     // Collect payment
     public bool $showPayment = false;
@@ -73,41 +64,11 @@ class OrderQueue extends Component
 
     /* ── Status transitions ─────────────────────────────── */
 
-    /**
-     * $mode: '' = check first · 'open' = open the missing units, then mark ready · 'skip' = mark ready anyway.
-     * Never blocked: the prompt only makes recording the stock-out one tap away at the moment it matters.
-     */
-    public function markReady(OrderService $service, ServingTracker $tracker, InventoryService $inventory, int $id, string $mode = ''): void
+    public function markReady(OrderService $service, int $id): void
     {
+        // Never interrupted by inventory: stock is checked once, at the end of the shift.
         $order = Order::findOrFail($id);
-
-        if ($mode === '' && $order->canMarkReady()) {
-            $missing = $tracker->itemsWithoutOpenUnit($order);
-            if ($missing->isNotEmpty()) {
-                $this->readyPromptId = $order->id;
-                $this->readyPromptItems = $missing->map(fn ($i) => ['name' => $i->name, 'unit' => $i->unit, 'in_storage' => $i->quantity_on_hand])->all();
-                $this->showReadyPrompt = true;
-
-                return;
-            }
-        }
-
-        if ($mode === 'open') {
-            foreach ($tracker->itemsWithoutOpenUnit($order) as $item) {
-                if ($item->quantity_on_hand > 0 && $this->attempt(fn () => $inventory->stockOut($item))) {
-                    $this->toast("1 {$item->unit} of {$item->name} is now in use.", 'info');
-                }
-            }
-            $this->dispatch('stock-changed');
-        }
-
-        $this->showReadyPrompt = false;
-        if ($this->attempt(fn () => $service->markReady($order), "Order #{$order->queue_number} is ready — call the customer.")) {
-            foreach ($service->notices as $notice) {
-                $this->toast($notice['message'], $notice['type']);
-            }
-            $this->dispatch('stock-changed'); // keep the bell's drink counts current
-        }
+        $this->attempt(fn () => $service->markReady($order), "Order #{$order->queue_number} is ready — call the customer.");
     }
 
     public function complete(OrderService $service, int $id): void

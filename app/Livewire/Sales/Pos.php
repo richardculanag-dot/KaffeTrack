@@ -119,11 +119,11 @@ class Pos extends Component
                 'image' => $p->imageUrl(),
                 'variants' => $p->variants->map(fn ($v) => ['id' => $v->id, 'name' => $v->name, 'price' => (float) $v->price])->values(),
                 'addons' => $p->addons->map(fn ($a) => ['id' => $a->id, 'name' => $a->name, 'price' => (float) $a->price])->values(),
-                // Soft warning only (never blocks): a linked item shows nothing in storage and nothing open.
-                // An add-on may substitute it (e.g. oat milk), and the records can be behind reality.
+                // Inventory → Sales, a recorded fact only: a linked item has nothing in storage and nothing
+                // open at the bar. A label, never a block (an add-on may swap the item, e.g. oat milk).
                 'stock_note' => ($out = $p->ingredients->filter(fn ($i) => $i->item && $i->item->quantity_on_hand <= 0 && ! $i->item->currentUsage)
                     ->map(fn ($i) => $i->item->name)->unique()->values())->isNotEmpty()
-                    ? $out->join(', ').' shows none left — check before confirming'
+                    ? $out->join(', ').': none in stock — check before confirming'
                     : null,
             ])->values(),
         ]);

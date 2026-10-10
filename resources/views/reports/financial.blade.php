@@ -30,6 +30,27 @@
 </table>
 <p class="muted small">Refunded orders ({{ peso($summary['refunds']) }}) are not included in net sales. Inventory purchases are expensed when the delivery is received (cash basis).</p>
 
+<h2>Sales vs cost of stock used</h2>
+<table>
+    <tbody>
+        <tr><td>Net sales</td><td class="r">{{ peso($stock_used['sales']) }}</td></tr>
+        <tr><td style="padding-left:16px">Cost of stock opened for use <span class="muted small">(stock-outs)</span></td><td class="r">{{ peso($stock_used['opened_cost']) }}</td></tr>
+        <tr><td style="padding-left:16px">Cost of stock thrown away or expired</td><td class="r">{{ peso($stock_used['lost_cost']) }}</td></tr>
+        <tr class="total"><td>Stock used as % of net sales</td><td class="r">{{ $stock_used['ratio'] !== null ? $stock_used['ratio'].'%' : '—' }}</td></tr>
+    </tbody>
+</table>
+<table>
+    <thead><tr><th>Item</th><th class="r">Units opened</th><th class="r">Cost</th><th class="r">Thrown away / expired</th><th class="r">Cost</th></tr></thead>
+    <tbody>
+        @forelse ($stock_used['rows'] as $r)
+            <tr><td>{{ $r['item']?->name }} <span class="muted small">({{ $r['item']?->unit }})</span></td><td class="r">{{ $r['opened'] }}</td><td class="r">{{ peso($r['opened_cost']) }}</td><td class="r">{{ $r['lost'] ?: '—' }}</td><td class="r">{{ $r['lost'] ? peso($r['lost_cost']) : '—' }}</td></tr>
+        @empty
+            <tr><td colspan="5" class="c muted">No stock was opened or written off in this period.</td></tr>
+        @endforelse
+    </tbody>
+</table>
+<p class="muted small">Each unit is costed at the price paid for the delivery batch it came from. {{ $stock_used['end_of_shift_units'] }} of the units opened were recorded at end-of-shift stock checks. This is the cost of stock that left storage, not the exact cost of the drinks sold (some opened units are still in use), so watch the percentage over time rather than reading it as a profit margin.</p>
+
 <h2>Other income</h2>
 <table>
     <thead><tr><th>Date</th><th>Source</th><th>Received by</th><th class="r">Amount</th></tr></thead>

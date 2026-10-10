@@ -9,18 +9,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * How an add-on changes what a drink uses:
  *   replace — swap the item in a role (Oat milk replaces the "milk" role). If the product has no such
  *             role (oat milk on an Americano), the item is added instead.
- *   add     — the drink also uses this item (Extra espresso shot → +1 serving of beans).
+ *   add     — the drink also uses this item (Extra espresso shot → also uses the beans).
  */
 class AddonIngredientRule extends Model
 {
     public const ACTIONS = ['replace' => 'Replaces', 'add' => 'Adds'];
 
-    protected $fillable = ['addon_id', 'action', 'role', 'inventory_item_id', 'servings'];
-
-    protected function casts(): array
-    {
-        return ['servings' => 'float'];
-    }
+    protected $fillable = ['addon_id', 'action', 'role', 'inventory_item_id'];
 
     public function addon(): BelongsTo
     {

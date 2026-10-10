@@ -5,14 +5,18 @@ namespace App\Services;
 use App\Exceptions\BusinessRuleException;
 use App\Models\CashMovement;
 use App\Models\CashShift;
+use App\Models\InventoryItem;
 use App\Models\Order;
+use App\Models\OrderItemIngredient;
+use App\Models\ShiftStockCheck;
 use App\Models\User;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Cash drawer lifecycle: open shift → (petty cash in/out) → end-of-day count → close.
+ * Cash drawer lifecycle: open shift → (petty cash in/out) → end-of-shift stock check → cash count → close.
  */
 class CashShiftService
 {
@@ -79,6 +83,62 @@ class CashShiftService
     }
 
     /**
+     * Sales ↔ Inventory: the items this shift's sales used that have not been checked yet.
+     * Only drinks that were actually made count (marked Ready at some point); an order cancelled
+     * while still pending never used anything.
+     *
+     * @return Collection<int, InventoryItem>  with currentUsage loaded
+     */
+    public function itemsToCheck(CashShift $shift): Collection
+    {
+        $used = OrderItemIngredient::query()
+            ->join('order_items', 'order_items.id', '=', 'order_item_ingredients.order_item_id')
+            ->join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->where('orders.cash_shift_id', $shift->id)
+            ->whereNotNull('orders.ready_at')
+            ->distinct()
+            ->pluck('order_item_ingredients.inventory_item_id');
+
+        $checked = ShiftStockCheck::where('cash_shift_id', $shift->id)->pluck('inventory_item_id');
+
+        return InventoryItem::with('currentUsage')
+            ->whereIn('id', $used->diff($checked))
+            ->orderBy('name')
+            ->get();
+    }
+
+    /**
+     * Record the end-of-shift stock check, all lines at once (all or nothing).
+     *
+     * @param  array<int, array{counted:int, wasted?:int, open_finished?:?bool, note?:?string}>  $lines  keyed by inventory item id
+     * @return Collection<int, ShiftStockCheck>
+     */
+    public function recordStockCheck(CashShift $shift, array $lines, ?User $by = null, ?Carbon $at = null): Collection
+    {
+        $by ??= Auth::user();
+        $at ??= now();
+
+        if ($shift->status !== 'open') {
+            throw new BusinessRuleException('This shift is already closed.');
+        }
+
+        return DB::transaction(function () use ($shift, $lines, $by, $at) {
+            $inventory = app(InventoryService::class);
+            $results = collect();
+            foreach ($this->itemsToCheck($shift) as $item) {
+                $line = $lines[$item->id] ?? null;
+                if ($line === null || ! isset($line['counted'])) {
+                    throw new BusinessRuleException("Count {$item->name} before saving the stock check.");
+                }
+                $results->push($inventory->recordShiftCheck($shift, $item, (int) $line['counted'], (int) ($line['wasted'] ?? 0),
+                    $line['open_finished'] ?? null, $line['note'] ?? null, $by, $at));
+            }
+
+            return $results;
+        });
+    }
+
+    /**
      * End-of-day count. $denominations = [1000 => 2, 500 => 3, …]; counted cash is derived from it
      * so the cashier never has to add up the drawer by hand.
      */
@@ -94,6 +154,11 @@ class CashShiftService
         $pending = Order::where('cash_shift_id', $shift->id)->activeQueue()->count();
         if ($pending > 0) {
             throw new BusinessRuleException("There are still {$pending} pending/ready order(s). Complete or cancel them before closing the shift.");
+        }
+
+        $unchecked = $this->itemsToCheck($shift);
+        if ($unchecked->isNotEmpty()) {
+            throw new BusinessRuleException('Finish the end-of-shift stock check first ('.$unchecked->pluck('name')->join(', ').').');
         }
 
         $clean = [];

@@ -3,10 +3,12 @@
 namespace App\Services;
 
 use App\Exceptions\BusinessRuleException;
+use App\Models\CashShift;
 use App\Models\Expense;
 use App\Models\ExpenseCategory;
 use App\Models\InventoryItem;
 use App\Models\ItemUsage;
+use App\Models\ShiftStockCheck;
 use App\Models\StockBatch;
 use App\Models\StockIn;
 use App\Models\StockMovement;
@@ -26,6 +28,9 @@ use Illuminate\Support\Facades\DB;
  */
 class InventoryService
 {
+    /** The unit stockOut() marked finished before opening a new one (null if none was open). */
+    public ?ItemUsage $finishedPrevious = null;
+
     /**
      * Receive a supplier delivery.
      *
@@ -124,56 +129,34 @@ class InventoryService
 
     /**
      * Take ONE unit out of storage for use at the bar (FEFO batch selection).
-     * Blocked while another unit of the same item is still open.
+     *
+     * Only one unit of an item is open at a time, so if one is still open it is marked finished
+     * first: opening a new carton means the previous one ran out. Check $finishedPrevious afterwards
+     * to tell the user.
      */
     public function stockOut(InventoryItem $item, ?string $notes = null, ?User $by = null, ?Carbon $at = null): ItemUsage
     {
         $by ??= Auth::user();
         $at ??= now();
+        $this->finishedPrevious = null;
 
         try {
             return DB::transaction(function () use ($item, $notes, $by, $at) {
                 $item = InventoryItem::lockForUpdate()->findOrFail($item->id);
-
-                $open = $item->currentUsage()->with('opener')->first();
-                if ($open) {
-                    throw new BusinessRuleException(
-                        "A unit of {$item->name} is still in use (opened {$open->opened_at->diffForHumans()} by {$open->opener->name}). Mark it as depleted first."
-                    );
-                }
                 if ($item->quantity_on_hand <= 0) {
                     throw new BusinessRuleException("{$item->name} is out of stock.");
                 }
 
-                $batch = $item->availableBatches()
-                    ->where(fn ($q) => $q->whereNull('expiry_date')->orWhere('expiry_date', '>=', $at->toDateString()))
-                    ->lockForUpdate()->first();
-                if (! $batch) {
-                    throw new BusinessRuleException("All remaining {$item->name} stock is expired. Ask a manager to write it off.");
+                $open = $item->currentUsage()->first();
+                if ($open) {
+                    $this->finishedPrevious = $this->closeUsage($open, ItemUsage::STATUS_DEPLETED, 'Finished — the next unit was opened', $by, $at);
                 }
 
-                $batch->decrement('quantity_remaining');
-                $balance = $this->changeOnHand($item, -1);
-
-                $usage = ItemUsage::create([
-                    'inventory_item_id' => $item->id,
-                    'stock_batch_id' => $batch->id,
-                    'status' => ItemUsage::STATUS_IN_USE,
-                    'opened_by' => $by->id,
-                    'opened_at' => $at,
-                    'notes' => $notes,
-                    'created_at' => $at,
-                    'updated_at' => $at,
-                ]);
-
-                $this->ledger($item, $batch, $by, 'stock_out', -1, $balance, $batch->unit_cost, $usage, $notes ?: 'Opened for use', $at);
-
-                // Sales ↔ Inventory: remember how many drinks a unit like this usually serves.
-                (new ServingTracker)->startUnit($item, $usage);
+                $usage = $this->openOne($item, $by, $at, $notes, allowExpired: false);
 
                 AuditLogger::log('inventory', 'stock_out',
-                    "Stocked out 1 {$item->unit} of {$item->name} (remaining: {$balance})",
-                    $usage, ['quantity_on_hand' => $balance + 1], ['quantity_on_hand' => $balance], $by);
+                    "Stocked out 1 {$item->unit} of {$item->name} (remaining: ".($item->quantity_on_hand - 1).')',
+                    $usage, ['quantity_on_hand' => $item->quantity_on_hand], ['quantity_on_hand' => $item->quantity_on_hand - 1], $by);
 
                 return $usage;
             });
@@ -198,7 +181,140 @@ class InventoryService
         return $this->closeUsage($usage, ItemUsage::STATUS_DISCARDED, $reason, $by);
     }
 
-    private function closeUsage(ItemUsage $usage, string $status, ?string $notes, ?User $by, ?Carbon $at = null): ItemUsage
+    /**
+     * One line of the END-OF-SHIFT STOCK CHECK (Sales ↔ Inventory).
+     *
+     * Staff count the SEALED units left on the shelf for an item the shift's sales used. Nothing is
+     * estimated: the difference between the system's count and the shelf is recorded as real ledger
+     * movements, split the way staff say —
+     *   $wasted          units thrown away (spoiled, dropped)       → "waste" movements
+     *   the rest         units opened for use but not recorded yet  → stock-outs
+     * Units are opened one after another (one open unit per item), so every unit opened here except
+     * the last is marked finished; $openFinished says whether the unit open at the bar now is empty.
+     * A count HIGHER than the system's changes nothing (usually an unrecorded delivery) and is noted.
+     */
+    public function recordShiftCheck(
+        CashShift $shift,
+        InventoryItem $item,
+        int $counted,
+        int $wasted = 0,
+        ?bool $openFinished = null,
+        ?string $note = null,
+        ?User $by = null,
+        ?Carbon $at = null,
+    ): ShiftStockCheck {
+        $by ??= Auth::user();
+        $at ??= now();
+        $label = "end-of-shift check (shift #{$shift->id})";
+
+        if ($counted < 0 || $wasted < 0) {
+            throw new BusinessRuleException('Counts cannot be negative.');
+        }
+
+        return DB::transaction(function () use ($shift, $item, $counted, $wasted, $openFinished, $note, $by, $at, $label) {
+            $item = InventoryItem::lockForUpdate()->findOrFail($item->id);
+            if (ShiftStockCheck::where('cash_shift_id', $shift->id)->where('inventory_item_id', $item->id)->exists()) {
+                throw new BusinessRuleException("{$item->name} was already checked for this shift.");
+            }
+
+            $expected = (int) $item->quantity_on_hand;
+            $missing = max(0, $expected - $counted);
+            if ($wasted > $missing) {
+                throw new BusinessRuleException("{$item->name}: only {$missing} {$item->unit} are missing from the shelf, so no more than {$missing} can be marked as thrown away.");
+            }
+            $opened = $missing - $wasted;
+            if ($counted > $expected) {
+                $note = trim('More than recorded on the shelf — check for a delivery that was not entered. '.($note ?? ''));
+            }
+
+            $check = ShiftStockCheck::create([
+                'cash_shift_id' => $shift->id,
+                'inventory_item_id' => $item->id,
+                'expected_sealed' => $expected,
+                'counted_sealed' => $counted,
+                'stocked_out' => $opened,
+                'wasted' => $wasted,
+                'open_unit_finished' => null,
+                'note' => $note ? mb_substr($note, 0, 255) : null,
+                'checked_by' => $by->id,
+                'checked_at' => $at,
+            ]);
+
+            // Thrown away straight from storage (never opened at the bar).
+            if ($wasted > 0) {
+                $left = $wasted;
+                foreach ($item->availableBatches()->lockForUpdate()->get() as $batch) {
+                    $take = min($left, $batch->quantity_remaining);
+                    $batch->decrement('quantity_remaining', $take);
+                    $balance = $this->changeOnHand($item, -$take);
+                    $this->ledger($item, $batch, $by, 'waste', -$take, $balance, $batch->unit_cost, $check, "Thrown away — found at the {$label}", $at);
+                    $left -= $take;
+                    if ($left === 0) {
+                        break;
+                    }
+                }
+            }
+
+            // Opened for use during the shift but not recorded: open them one after another.
+            for ($i = 0; $i < $opened; $i++) {
+                if ($open = $item->currentUsage()->first()) {
+                    $this->closeUsage($open, ItemUsage::STATUS_DEPLETED, "Finished — recorded at the {$label}", $by, $at, audit: false);
+                }
+                $this->openOne($item, $by, $at, "Opened during the shift — recorded at the {$label}", allowExpired: true);
+            }
+
+            // Is the unit at the bar now empty? Only asked when one is open.
+            $open = $item->currentUsage()->first();
+            if ($open) {
+                $finished = (bool) $openFinished;
+                if ($finished) {
+                    $this->closeUsage($open, ItemUsage::STATUS_DEPLETED, "Empty at the {$label}", $by, $at, audit: false);
+                }
+                $check->forceFill(['open_unit_finished' => $finished])->save();
+            }
+
+            AuditLogger::log('inventory', 'shift_stock_check',
+                "{$item->name}: counted {$counted} sealed (system had {$expected}) — {$check->outcome()}"
+                    .($check->open_unit_finished === true ? '; open unit finished' : ($check->open_unit_finished === false ? '; open unit still in use' : '')),
+                $check, ['quantity_on_hand' => $expected], ['quantity_on_hand' => $expected - $opened - $wasted], $by);
+
+            return $check;
+        });
+    }
+
+    /** Take one unit from the FEFO batch, create the open unit and its ledger line. Call inside a transaction. */
+    private function openOne(InventoryItem $item, User $by, Carbon $at, ?string $notes, bool $allowExpired): ItemUsage
+    {
+        $batches = $item->availableBatches()->lockForUpdate();
+        $batch = (clone $batches)->where(fn ($q) => $q->whereNull('expiry_date')->orWhere('expiry_date', '>=', $at->toDateString()))->first();
+        if (! $batch && $allowExpired) {
+            // The shelf count says it is gone, so record it even if the batch had expired.
+            $batch = $batches->first();
+        }
+        if (! $batch) {
+            throw new BusinessRuleException("All remaining {$item->name} stock is expired. Ask a manager to write it off.");
+        }
+
+        $batch->decrement('quantity_remaining');
+        $balance = $this->changeOnHand($item, -1);
+
+        $usage = ItemUsage::create([
+            'inventory_item_id' => $item->id,
+            'stock_batch_id' => $batch->id,
+            'status' => ItemUsage::STATUS_IN_USE,
+            'opened_by' => $by->id,
+            'opened_at' => $at,
+            'notes' => $notes,
+            'created_at' => $at,
+            'updated_at' => $at,
+        ]);
+
+        $this->ledger($item, $batch, $by, 'stock_out', -1, $balance, $batch->unit_cost, $usage, $notes ?: 'Opened for use', $at);
+
+        return $usage;
+    }
+
+    private function closeUsage(ItemUsage $usage, string $status, ?string $notes, ?User $by, ?Carbon $at = null, bool $audit = true): ItemUsage
     {
         $by ??= Auth::user();
         $at ??= now();
@@ -213,17 +329,15 @@ class InventoryService
             'closed_at' => $at,
             'notes' => $notes ?: $usage->notes,
             'updated_at' => $at,
-            // A spoiled/spilled unit says nothing about how many drinks a unit normally serves.
-            'exclude_from_history' => $status === ItemUsage::STATUS_DISCARDED ? true : $usage->exclude_from_history,
         ])->save();
 
-        $item = $usage->loadMissing('item')->item;
-        $label = $status === ItemUsage::STATUS_DEPLETED ? 'depleted' : 'discarded';
-        AuditLogger::log('inventory', $label,
-            ucfirst($label)." open unit of {$item->name} after {$usage->durationLabel()}"
-                .($usage->servings_used > 0 ? ' ('.ItemUsage::servingsLabel($usage->servings_used).' drink(s) served)' : '')
-                .($notes ? ": {$notes}" : ''),
-            $usage, ['status' => 'in_use'], ['status' => $status], $by);
+        if ($audit) {
+            $item = $usage->loadMissing('item')->item;
+            $label = $status === ItemUsage::STATUS_DEPLETED ? 'depleted' : 'discarded';
+            AuditLogger::log('inventory', $label,
+                ucfirst($label)." open unit of {$item->name} after {$usage->durationLabel()}".($notes ? ": {$notes}" : ''),
+                $usage, ['status' => 'in_use'], ['status' => $status], $by);
+        }
 
         return $usage;
     }

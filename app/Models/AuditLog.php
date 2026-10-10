@@ -50,7 +50,7 @@ class AuditLog extends Model
     {
         return match ($this->event) {
             'created', 'stock_in', 'login', 'restored', 'shift_opened', 'order_completed', 'payment_received' => 'green',
-            'updated', 'order_ready', 'adjustment', 'settings_updated' => 'blue',
+            'updated', 'order_ready', 'adjustment', 'settings_updated', 'shift_stock_check' => 'blue',
             'archived', 'cancelled', 'logout', 'shift_closed', 'stock_out', 'depleted' => 'amber',
             'login_failed', 'refund', 'waste', 'expired', 'discarded', 'deleted' => 'red',
             default => 'gray',

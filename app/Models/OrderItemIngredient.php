@@ -6,19 +6,15 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * Which inventory items a sold line used (resolved when the order is placed) and which open unit
- * it was counted against (set once, when the drink is marked Ready).
+ * Which inventory items a sold line used, resolved once when the order is placed (like product names
+ * and prices, so later recipe edits never rewrite history). The end-of-shift stock check lists the
+ * items used by the shift's made orders.
  */
 class OrderItemIngredient extends Model
 {
     public const UPDATED_AT = null;
 
-    protected $fillable = ['order_item_id', 'inventory_item_id', 'servings', 'item_usage_id', 'counted_at', 'created_at'];
-
-    protected function casts(): array
-    {
-        return ['servings' => 'float', 'counted_at' => 'datetime'];
-    }
+    protected $fillable = ['order_item_id', 'inventory_item_id', 'created_at'];
 
     public function orderItem(): BelongsTo
     {
@@ -28,10 +24,5 @@ class OrderItemIngredient extends Model
     public function item(): BelongsTo
     {
         return $this->belongsTo(InventoryItem::class, 'inventory_item_id')->withTrashed();
-    }
-
-    public function usage(): BelongsTo
-    {
-        return $this->belongsTo(ItemUsage::class, 'item_usage_id');
     }
 }

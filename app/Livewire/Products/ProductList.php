@@ -23,8 +23,8 @@ use Livewire\WithPagination;
 
 /**
  * Menu products. A product can list the inventory items it uses ("Café Latte uses Fresh Milk and
- * House Blend Beans") — no amounts, because drinks are hand-made without fixed recipes. The link is
- * used to count drinks served per open unit (see App\Services\ServingTracker).
+ * House Blend Beans") — no amounts, because drinks are hand-made without fixed recipes. The link
+ * decides which items appear in the end-of-shift stock check (see CashShiftService::itemsToCheck).
  */
 #[Title('Products')]
 class ProductList extends Component
@@ -46,7 +46,7 @@ class ProductList extends Component
     public array $form = [];
     public array $variants = [];
     public array $addonIds = [];
-    /** @var array<int, array{role:string, inventory_item_id:string|int, servings:float|string}> */
+    /** @var array<int, array{role:string, inventory_item_id:string|int}> */
     public array $ingredients = [];
     public $photo = null;
     public bool $removePhoto = false;
@@ -91,7 +91,7 @@ class ProductList extends Component
         ];
         $this->variants = $product->variants->map(fn ($v) => ['id' => $v->id, 'name' => $v->name, 'price' => (float) $v->price, 'is_default' => $v->is_default])->all();
         $this->addonIds = $product->addons->pluck('id')->map(fn ($id) => (string) $id)->all();
-        $this->ingredients = $product->ingredients->map(fn ($i) => ['role' => $i->role, 'inventory_item_id' => (string) $i->inventory_item_id, 'servings' => $i->servings])->all();
+        $this->ingredients = $product->ingredients->map(fn ($i) => ['role' => $i->role, 'inventory_item_id' => (string) $i->inventory_item_id])->all();
         $this->photo = null;
         $this->removePhoto = false;
         $this->showForm = true;
@@ -99,7 +99,7 @@ class ProductList extends Component
 
     public function addIngredient(): void
     {
-        $this->ingredients[] = ['role' => '', 'inventory_item_id' => '', 'servings' => 1];
+        $this->ingredients[] = ['role' => '', 'inventory_item_id' => ''];
     }
 
     public function removeIngredient(int $index): void
@@ -152,7 +152,6 @@ class ProductList extends Component
             'ingredients' => ['array', 'max:10'],
             'ingredients.*.role' => ['required', 'string', 'max:30', 'distinct:ignore_case'],
             'ingredients.*.inventory_item_id' => ['required', Rule::exists('inventory_items', 'id')->whereNull('deleted_at')],
-            'ingredients.*.servings' => ['required', 'numeric', 'min:0.25', 'max:10'],
         ], [
             'ingredients.*.role.required' => 'Name what this item is for, e.g. milk.',
             'ingredients.*.role.distinct' => 'Each role can be used once (an add-on replaces it by this name).',
@@ -164,7 +163,7 @@ class ProductList extends Component
         ], [
             'form.name' => 'product name', 'form.code' => 'product code', 'form.category_id' => 'category',
             'variants.*.price' => 'price', 'variants.*.name' => 'size name',
-            'ingredients.*.role' => 'role', 'ingredients.*.inventory_item_id' => 'inventory item', 'ingredients.*.servings' => 'servings',
+            'ingredients.*.role' => 'role', 'ingredients.*.inventory_item_id' => 'inventory item',
         ]);
 
         DB::transaction(function () {
@@ -202,14 +201,13 @@ class ProductList extends Component
 
             // Inventory items this product uses (replace the whole list; sales keep their own snapshot).
             $itemNames = InventoryItem::withTrashed()->pluck('name', 'id');
-            $describe = fn ($rows) => collect($rows)->mapWithKeys(fn ($r) => [mb_strtolower(trim($r['role'])) => $itemNames[$r['inventory_item_id']].((float) $r['servings'] != 1.0 ? ' ×'.(float) $r['servings'] : '')])->sortKeys()->all();
+            $describe = fn ($rows) => collect($rows)->mapWithKeys(fn ($r) => [mb_strtolower(trim($r['role'])) => $itemNames[$r['inventory_item_id']]])->sortKeys()->all();
             $before = $product->exists ? $describe($product->ingredients()->get()->toArray()) : [];
             $product->ingredients()->delete();
             foreach ($this->ingredients as $row) {
                 $product->ingredients()->create([
                     'role' => mb_strtolower(trim($row['role'])),
                     'inventory_item_id' => (int) $row['inventory_item_id'],
-                    'servings' => round((float) $row['servings'], 2),
                 ]);
             }
             $after = $describe($this->ingredients);

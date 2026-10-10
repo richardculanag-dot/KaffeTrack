@@ -9,6 +9,7 @@ use App\Models\Income;
 use App\Models\InventoryItem;
 use App\Models\Order;
 use App\Models\Refund;
+use App\Models\ShiftStockCheck;
 use App\Models\StockIn;
 use App\Models\StockMovement;
 use Illuminate\Support\Carbon;
@@ -124,40 +125,9 @@ class ReportBuilder
             'deliveries' => StockIn::with('supplier')->whereBetween('received_date', $this->dates())->orderBy('received_date')->get(),
             'writeoffs' => StockMovement::with(['item', 'user'])->whereIn('type', ['waste', 'expired', 'adjustment_out', 'adjustment_in'])
                 ->whereBetween('created_at', [$this->from, $this->to])->latest('created_at')->get(),
-            'servings' => $this->servingsSummary(),
+            'stock_checks' => ShiftStockCheck::with(['item', 'checker', 'shift'])
+                ->whereBetween('checked_at', [$this->from, $this->to])->orderBy('checked_at')->get(),
         ];
-    }
-
-    /**
-     * Sales ↔ Inventory: drinks served per opened unit for tracked items in the period.
-     * Estimates only — counted when orders are marked ready, never a measurement.
-     */
-    private function servingsSummary(): \Illuminate\Support\Collection
-    {
-        return InventoryItem::where('tracks_servings', true)->orderBy('name')->get()->map(function ($item) {
-            $closed = $item->usages()->where('status', 'depleted')->whereBetween('closed_at', [$this->from, $this->to])
-                ->where('exclude_from_history', false)->where('servings_used', '>', 0)->get();
-            $opened = StockMovement::where('inventory_item_id', $item->id)->where('type', 'stock_out')
-                ->whereBetween('created_at', [$this->from, $this->to]);
-            $drinks = (float) \App\Models\OrderItemIngredient::where('inventory_item_id', $item->id)
-                ->whereBetween('counted_at', [$this->from, $this->to])->sum('servings');
-            $unrecorded = (float) \App\Models\OrderItemIngredient::where('inventory_item_id', $item->id)->whereNull('item_usage_id')
-                ->whereBetween('counted_at', [$this->from, $this->to])->sum('servings');
-            $avgDrinks = $closed->count() ? $closed->avg('servings_used') : null;
-            $avgCost = (float) (clone $opened)->avg('unit_cost');
-
-            return [
-                'item' => $item,
-                'opened' => (clone $opened)->count(),
-                'drinks' => $drinks,
-                'unrecorded' => $unrecorded,
-                'used_up' => $closed->count(),
-                'avg_drinks' => $avgDrinks,
-                'cost_per_drink' => $avgDrinks && $avgCost ? round($avgCost / $avgDrinks, 2) : null,
-                'alerts' => $item->usages()->whereBetween('alerted_at', [$this->from, $this->to])->count(),
-                'flagged' => $item->usages()->whereBetween('flagged_at', [$this->from, $this->to])->count(),
-            ];
-        })->filter(fn ($r) => $r['opened'] || $r['drinks'] || $r['used_up'])->values();
     }
 
     private function financial(): array
@@ -171,14 +141,56 @@ class ReportBuilder
             'expenses' => Expense::with(['category', 'supplier'])->whereBetween('expense_date', $this->dates())->orderBy('expense_date')->get(),
             'incomes' => Income::whereBetween('income_date', $this->dates())->orderBy('income_date')->get(),
             'gross_sales' => (float) Order::where('payment_status', 'paid')->whereBetween('created_at', [$this->from, $this->to])->sum('subtotal'),
+            'stock_used' => $this->stockUsedVsSales($summary['sales']),
             'margin' => $summary['sales'] + $summary['other_income'] > 0
                 ? round($summary['net_income'] / ($summary['sales'] + $summary['other_income']) * 100, 1) : null,
         ];
     }
 
+    /**
+     * Sales ↔ Inventory → Finance: net sales next to the purchase cost of the stock that left storage
+     * in the same period. Facts only: every stock-out and write-off carries the unit cost of the
+     * delivery batch it came from. Not the exact cost of the drinks sold (some opened units are
+     * still in use), so it is shown as a ratio to watch over time.
+     */
+    private function stockUsedVsSales(float $sales): array
+    {
+        $rows = StockMovement::with('item:id,name,unit')
+            ->whereIn('type', ['stock_out', 'waste', 'expired'])
+            ->whereBetween('created_at', [$this->from, $this->to])
+            ->selectRaw('inventory_item_id, type, SUM(ABS(quantity)) as units, SUM(ABS(quantity) * COALESCE(unit_cost,0)) as cost')
+            ->groupBy('inventory_item_id', 'type')->get()
+            ->groupBy('inventory_item_id')
+            ->map(function ($g) {
+                $out = $g->firstWhere('type', 'stock_out');
+                $lost = $g->whereIn('type', ['waste', 'expired']);
+
+                return [
+                    'item' => $g->first()->item,
+                    'opened' => (int) ($out->units ?? 0),
+                    'opened_cost' => round((float) ($out->cost ?? 0), 2),
+                    'lost' => (int) $lost->sum('units'),
+                    'lost_cost' => round((float) $lost->sum('cost'), 2),
+                ];
+            })
+            ->sortByDesc(fn ($r) => $r['opened_cost'] + $r['lost_cost'])->values();
+
+        $opened = (float) $rows->sum('opened_cost');
+        $lost = (float) $rows->sum('lost_cost');
+
+        return [
+            'rows' => $rows,
+            'sales' => $sales,
+            'opened_cost' => round($opened, 2),
+            'lost_cost' => round($lost, 2),
+            'ratio' => $sales > 0 ? round(($opened + $lost) / $sales * 100, 1) : null,
+            'end_of_shift_units' => (int) ShiftStockCheck::whereBetween('checked_at', [$this->from, $this->to])->sum('stocked_out'),
+        ];
+    }
+
     private function shifts(): array
     {
-        $shifts = CashShift::with(['opener', 'closer'])->whereBetween('opened_at', [$this->from, $this->to])->orderBy('opened_at')->get();
+        $shifts = CashShift::with(['opener', 'closer', 'stockChecks.item'])->whereBetween('opened_at', [$this->from, $this->to])->orderBy('opened_at')->get();
 
         return [
             'shifts' => $shifts->map(fn ($s) => ['shift' => $s, 'summary' => $s->summary()]),

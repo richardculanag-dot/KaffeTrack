@@ -27,6 +27,10 @@ class CashDrawer extends Component
     public array $counts = [];
     public string $closeNotes = '';
 
+    // End-of-shift stock check (Sales ↔ Inventory): item id => [counted, wasted, open_left (yes|no), note]
+    public array $check = [];
+    public bool $checkReview = false;
+
     public $viewingId = null; // untyped: the modal sets it to false when closed
 
     public function mount(): void
@@ -87,7 +91,81 @@ class CashDrawer extends Component
         $this->resetValidation();
         $this->resetCounts();
         $this->closeNotes = '';
+        $this->check = [];
+        $this->checkReview = false;
         $this->showClose = true;
+    }
+
+    /* ── End-of-shift stock check ─────────────────────────────
+     * Items this shift's sales used are listed; staff count the SEALED units left on the shelf and
+     * say whether the unit open at the bar is empty. Blind count: the system's number is shown only
+     * on the review step, so staff count what is really there instead of confirming a number.
+     */
+
+    /** Validate the counts and show what will be recorded (nothing is saved yet). */
+    public function reviewStockCheck(CashShiftService $service): void
+    {
+        $shift = CashShift::current();
+        if (! $shift) {
+            return;
+        }
+        $items = $service->itemsToCheck($shift);
+
+        $rules = [];
+        foreach ($items as $item) {
+            $rules["check.{$item->id}.counted"] = ['required', 'integer', 'min:0', 'max:100000'];
+            $rules["check.{$item->id}.wasted"] = ['nullable', 'integer', 'min:0', 'max:100000'];
+            $rules["check.{$item->id}.open_left"] = ['required', 'in:yes,no'];
+            $rules["check.{$item->id}.note"] = ['nullable', 'string', 'max:200'];
+        }
+        $this->validate($rules, [
+            'check.*.counted.required' => 'Count the sealed units on the shelf (0 if none).',
+            'check.*.counted.integer' => 'Use whole numbers.',
+            'check.*.open_left.required' => 'Choose one.',
+        ], ['check.*.counted' => 'count', 'check.*.wasted' => 'thrown away']);
+
+        foreach ($items as $item) {
+            $missing = max(0, $item->quantity_on_hand - (int) $this->check[$item->id]['counted']);
+            if ((int) ($this->check[$item->id]['wasted'] ?? 0) > $missing) {
+                $this->addError("check.{$item->id}.wasted", "Only {$missing} {$item->unit} are missing from the shelf.");
+            }
+        }
+        if ($this->getErrorBag()->isEmpty()) {
+            $this->checkReview = true;
+        }
+    }
+
+    public function editStockCheck(): void
+    {
+        $this->checkReview = false;
+    }
+
+    public function saveStockCheck(CashShiftService $service): void
+    {
+        $shift = CashShift::current();
+        if (! $shift || ! $this->checkReview) {
+            return;
+        }
+        $lines = collect($this->check)->map(fn ($l) => [
+            'counted' => (int) ($l['counted'] ?? 0),
+            'wasted' => (int) ($l['wasted'] ?? 0),
+            'open_finished' => ($l['open_left'] ?? '') === 'no',
+            'note' => filled($l['note'] ?? null) ? trim($l['note']) : null,
+        ])->all();
+
+        $results = $this->attempt(fn () => $service->recordStockCheck($shift, $lines));
+        if ($results) {
+            $out = $results->sum('stocked_out');
+            $wasted = $results->sum('wasted');
+            $this->toast('Stock check saved: '.$results->count().' item(s) checked'
+                .($out ? ", {$out} unit(s) recorded as stocked out" : '').($wasted ? ", {$wasted} as thrown away" : '')
+                .'. Now count the cash.');
+            $this->check = [];
+            $this->checkReview = false;
+            $this->dispatch('stock-changed');
+        } else {
+            $this->checkReview = false; // something changed (e.g. a new sale); review again
+        }
     }
 
     public function getCountedProperty(): float
@@ -128,13 +206,15 @@ class CashDrawer extends Component
     public function render()
     {
         $shift = CashShift::with(['opener', 'cashMovements.user'])->where('status', 'open')->first();
+        $checkItems = $shift && $this->showClose ? app(CashShiftService::class)->itemsToCheck($shift) : collect();
 
         return view('livewire.sales.cash-drawer', [
             'shift' => $shift,
+            'checkItems' => $checkItems,
             'summary' => $shift?->summary(),
             'activeOrders' => $shift ? Order::where('cash_shift_id', $shift->id)->activeQueue()->count() : 0,
             'history' => CashShift::with(['opener', 'closer'])->where('status', 'closed')->latest('opened_at')->paginate(10),
-            'viewing' => $this->viewingId ? CashShift::with(['opener', 'closer', 'cashMovements.user'])->find($this->viewingId) : null,
+            'viewing' => $this->viewingId ? CashShift::with(['opener', 'closer', 'cashMovements.user', 'stockChecks.item', 'stockChecks.checker'])->find($this->viewingId) : null,
         ]);
     }
 }

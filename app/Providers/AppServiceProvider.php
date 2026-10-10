@@ -50,6 +50,7 @@ class AppServiceProvider extends ServiceProvider
             'stock_movement' => Models\StockMovement::class,
             'cash_shift' => Models\CashShift::class,
             'cash_movement' => Models\CashMovement::class,
+            'shift_stock_check' => Models\ShiftStockCheck::class,
             'order' => Models\Order::class,
             'order_item' => Models\OrderItem::class,
             'payment' => Models\Payment::class,

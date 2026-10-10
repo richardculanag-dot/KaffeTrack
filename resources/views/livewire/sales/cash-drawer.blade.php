@@ -134,8 +134,83 @@
     </x-modal>
 
     {{-- End-of-day count --}}
-    <x-modal wire:model="showClose" title="End-of-day count" description="Count each bill and coin in the drawer. The total is calculated for you." size="lg" icon="lock">
-        @if ($shift)
+    @php $stockStep = $shift && $checkItems->isNotEmpty(); @endphp
+    <x-modal wire:model="showClose" :title="$stockStep ? 'Step 1 of 2 — Stock check' : ($shift?->stockChecks()->exists() ? 'Step 2 of 2 — Cash count' : 'End-of-day count')"
+             :description="$stockStep ? 'Today\'s sales used these items. Count the sealed ones left in storage.' : 'Count each bill and coin in the drawer. The total is calculated for you.'"
+             size="lg" :icon="$stockStep ? 'package' : 'lock'">
+        @if ($stockStep && ! $checkReview)
+            {{-- Sales ↔ Inventory: blind count of sealed units for every item this shift's sales used. --}}
+            <form id="check-form" wire:submit="reviewStockCheck" class="space-y-3">
+                <p class="rounded-xl bg-sage-100 px-3.5 py-2.5 text-sm text-sage-700">
+                    Count only <strong>sealed</strong> units on the shelf or in the fridge — not the one open at the bar.
+                    Anything you didn't stock out during the shift is recorded from this count.
+                </p>
+                @foreach ($checkItems as $item)
+                    <div wire:key="chk-{{ $item->id }}" x-data="{ more: {{ filled($check[$item->id]['wasted'] ?? null) || filled($check[$item->id]['note'] ?? null) ? 'true' : 'false' }} }"
+                         class="rounded-xl border border-sage-200 p-3.5">
+                        <div class="grid items-start gap-3 sm:grid-cols-[1fr_9rem_15rem]">
+                            <div>
+                                <p class="font-semibold">{{ $item->name }}</p>
+                                <p class="text-xs text-sage-500">per {{ $item->unit }}@if ($item->currentUsage) · open since {{ $item->currentUsage->opened_at->format('M j, g:i A') }}@endif</p>
+                                <button type="button" class="mt-1 text-xs font-semibold text-leaf-700 hover:underline" @click="more = !more" x-text="more ? 'Hide' : 'Some were thrown away?'"></button>
+                            </div>
+                            <x-input :label="$loop->first ? 'Sealed left' : null" name="check.{{ $item->id }}.counted" type="number" min="0" step="1" inputmode="numeric"
+                                     wire:model="check.{{ $item->id }}.counted" aria-label="Sealed {{ $item->name }} left" placeholder="Count" />
+                            <div>
+                                @if ($loop->first)<span class="field-label">Open one at the bar</span>@endif
+                                <div class="grid grid-cols-2 gap-1 rounded-xl bg-sage-100 p-1" role="radiogroup" aria-label="Open {{ $item->name }} at the bar">
+                                    @foreach (['yes' => 'Still has some', 'no' => 'Empty / none'] as $val => $text)
+                                        <label class="cursor-pointer">
+                                            <input type="radio" class="peer sr-only" value="{{ $val }}" wire:model="check.{{ $item->id }}.open_left">
+                                            <span class="block rounded-lg px-2 py-1.5 text-center text-sm font-semibold text-sage-600 transition peer-checked:bg-white peer-checked:text-ink peer-checked:shadow-sm peer-focus-visible:ring-2 peer-focus-visible:ring-leaf-500">{{ $text }}</span>
+                                        </label>
+                                    @endforeach
+                                </div>
+                                @error('check.'.$item->id.'.open_left')<p class="field-message">{{ $message }}</p>@enderror
+                            </div>
+                        </div>
+                        <div x-show="more" x-cloak class="mt-3 grid gap-3 border-t border-dashed border-sage-200 pt-3 sm:grid-cols-[9rem_1fr]">
+                            <x-input label="Thrown away" name="check.{{ $item->id }}.wasted" type="number" min="0" step="1" inputmode="numeric" wire:model="check.{{ $item->id }}.wasted" placeholder="0" optional />
+                            <x-input label="Note" name="check.{{ $item->id }}.note" wire:model="check.{{ $item->id }}.note" maxlength="200" placeholder="e.g. carton was spoiled" optional />
+                        </div>
+                    </div>
+                @endforeach
+            </form>
+        @elseif ($stockStep && $checkReview)
+            {{-- Review before anything is recorded. --}}
+            <div class="space-y-3">
+                <p class="text-sm text-sage-600">Check what will be recorded. Nothing has been saved yet.</p>
+                <div class="overflow-x-auto rounded-xl border border-sage-200">
+                    <table class="table">
+                        <thead><tr><th>Item</th><th class="text-right">System had</th><th class="text-right">You counted</th><th>Will be recorded</th></tr></thead>
+                        <tbody>
+                            @foreach ($checkItems as $item)
+                                @php
+                                    $counted = (int) ($check[$item->id]['counted'] ?? 0);
+                                    $wasted = (int) ($check[$item->id]['wasted'] ?? 0);
+                                    $missing = max(0, $item->quantity_on_hand - $counted);
+                                    $opened = $missing - $wasted;
+                                    $empty = ($check[$item->id]['open_left'] ?? '') === 'no';
+                                    $parts = [];
+                                    if ($opened > 0) { $parts[] = $opened.' stocked out'.($opened > 1 ? ' ('.($opened - 1).' finished)' : ''); }
+                                    if ($wasted > 0) { $parts[] = $wasted.' thrown away'; }
+                                    if ($counted > $item->quantity_on_hand) { $parts[] = 'more than recorded — check for a delivery not entered; stock unchanged'; }
+                                    if ($empty && ($item->currentUsage || $opened > 0)) { $parts[] = 'open '.$item->unit.' marked finished'; }
+                                    elseif (! $empty && ($item->currentUsage || $opened > 0)) { $parts[] = 'open '.$item->unit.' stays open'; }
+                                @endphp
+                                <tr wire:key="rev-{{ $item->id }}">
+                                    <td class="font-semibold">{{ $item->name }}</td>
+                                    <td class="text-right tabular">{{ $item->quantity_on_hand }}</td>
+                                    <td class="text-right tabular {{ $counted !== $item->quantity_on_hand ? 'font-semibold text-warn-700' : '' }}">{{ $counted }}</td>
+                                    <td class="text-sm {{ $parts ? '' : 'text-sage-500' }}">{{ $parts ? ucfirst(implode(' · ', $parts)) : 'Matches — nothing to record' }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+                <p class="text-xs text-sage-500">Stock-outs recorded here are marked "recorded at the end-of-shift check" with your name.</p>
+            </div>
+        @elseif ($shift)
             @php $expected = $summary['expected_cash']; $variance = round($this->counted - $expected, 2); @endphp
             <form id="close-form" wire:submit="close" class="space-y-5">
                 <div class="grid grid-cols-3 gap-3 sm:grid-cols-5">
@@ -162,11 +237,21 @@
             </form>
         @endif
         <x-slot:footer>
-            <button type="button" class="btn-secondary" @click="show = false">Keep shift open</button>
-            <button type="button" class="btn-primary" wire:loading.attr="disabled" wire:target="close"
-                    @click="$confirm({ title: 'Close the cash drawer?', message: 'After closing, no more orders can be taken until a new shift is opened.', confirmText: 'Close shift' }, () => $wire.close())">
-                Close shift
-            </button>
+            @if ($stockStep && ! $checkReview)
+                <button type="button" class="btn-secondary" @click="show = false">Keep shift open</button>
+                <x-submit form="check-form" target="reviewStockCheck">Review counts</x-submit>
+            @elseif ($stockStep)
+                <button type="button" class="btn-secondary" wire:click="editStockCheck">Back to counts</button>
+                <button type="button" class="btn-primary" wire:click="saveStockCheck" wire:loading.attr="disabled" wire:target="saveStockCheck">
+                    <x-icon name="check" class="size-4" /> Record stock check
+                </button>
+            @else
+                <button type="button" class="btn-secondary" @click="show = false">Keep shift open</button>
+                <button type="button" class="btn-primary" wire:loading.attr="disabled" wire:target="close"
+                        @click="$confirm({ title: 'Close the cash drawer?', message: 'After closing, no more orders can be taken until a new shift is opened.', confirmText: 'Close shift' }, () => $wire.close())">
+                    Close shift
+                </button>
+            @endif
         </x-slot:footer>
     </x-modal>
 
@@ -192,6 +277,24 @@
                     @foreach ($viewing->denominations as $d => $n)
                         <span class="badge-gray tabular">₱{{ number_format($d) }} × {{ $n }}</span>
                     @endforeach
+                </div>
+            @endif
+            @if ($viewing->stockChecks->isNotEmpty())
+                <h3 class="mb-2 mt-5 text-sm font-semibold text-sage-600">End-of-shift stock check · {{ $viewing->stockChecks->first()->checker?->name }}</h3>
+                <div class="overflow-x-auto rounded-xl border border-sage-200">
+                    <table class="table">
+                        <thead><tr><th>Item</th><th class="text-right">System had</th><th class="text-right">Counted</th><th>Recorded</th></tr></thead>
+                        <tbody>
+                            @foreach ($viewing->stockChecks->sortBy(fn ($c) => $c->item?->name) as $c)
+                                <tr>
+                                    <td class="font-semibold">{{ $c->item?->name }}</td>
+                                    <td class="text-right tabular">{{ $c->expected_sealed }}</td>
+                                    <td class="text-right tabular {{ $c->difference() !== 0 ? 'font-semibold text-warn-700' : '' }}">{{ $c->counted_sealed }}</td>
+                                    <td class="text-sm">{{ $c->outcome() }}{{ $c->open_unit_finished === true ? ' · open unit finished' : '' }}@if ($c->note)<span class="block text-xs text-sage-500">{{ $c->note }}</span>@endif</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
                 </div>
             @endif
             @if ($viewing->notes)

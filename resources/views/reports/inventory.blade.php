@@ -63,25 +63,28 @@
     </tbody>
 </table>
 
-<h2>Drinks served per opened unit (estimate)</h2>
+<h2>End-of-shift stock checks</h2>
+@php
+    $differences = $stock_checks->filter(fn ($c) => $c->outcome() !== 'Matched');
+    $shiftCount = $stock_checks->pluck('cash_shift_id')->unique()->count();
+@endphp
+<p class="small">{{ $stock_checks->count() }} item count(s) across {{ $shiftCount }} shift(s): {{ $stock_checks->count() - $differences->count() }} matched the records, {{ $differences->count() }} did not. Only the differences are listed.</p>
 <table>
-    <thead><tr><th>Item</th><th class="r">Units opened</th><th class="r">Drinks counted</th><th class="r">Units used up</th><th class="r">Avg drinks / unit</th><th class="r">Approx. cost / drink</th><th class="r">Alerts</th><th class="r">Reviews</th></tr></thead>
+    <thead><tr><th>Checked</th><th>Item</th><th class="r">System had</th><th class="r">Counted</th><th>Recorded</th><th>By</th></tr></thead>
     <tbody>
-        @forelse ($servings as $s)
+        @forelse ($differences as $c)
             <tr>
-                <td>{{ $s['item']->name }} <span class="muted small">({{ $s['item']->unit }})</span>@if ($s['unrecorded'] > 0)<br><span class="small neg">{{ \App\Models\ItemUsage::servingsLabel($s['unrecorded']) }} drink(s) made with no open unit recorded</span>@endif</td>
-                <td class="r">{{ $s['opened'] }}</td>
-                <td class="r">{{ \App\Models\ItemUsage::servingsLabel($s['drinks']) }}</td>
-                <td class="r">{{ $s['used_up'] }}</td>
-                <td class="r">{{ $s['avg_drinks'] ? number_format($s['avg_drinks'], 1) : '—' }}</td>
-                <td class="r">{{ $s['cost_per_drink'] ? peso($s['cost_per_drink']) : '—' }}</td>
-                <td class="r">{{ $s['alerts'] }}</td>
-                <td class="r {{ $s['flagged'] ? 'neg' : '' }}">{{ $s['flagged'] }}</td>
+                <td>{{ $c->checked_at->format('M j, g:i A') }}<br><span class="muted small">Shift #{{ $c->cash_shift_id }}</span></td>
+                <td>{{ $c->item?->name }} <span class="muted small">({{ $c->item?->unit }})</span></td>
+                <td class="r">{{ $c->expected_sealed }}</td>
+                <td class="r {{ $c->difference() < 0 ? 'neg' : ($c->difference() > 0 ? 'warn' : '') }}">{{ $c->counted_sealed }}</td>
+                <td>{{ $c->outcome() }}{{ $c->open_unit_finished === true ? ' · open unit finished' : '' }}@if ($c->note)<br><span class="muted small">{{ $c->note }}</span>@endif</td>
+                <td>{{ $c->checker?->name }}</td>
             </tr>
         @empty
-            <tr><td colspan="8" class="c muted">No items are tracked, or none were used in this period.</td></tr>
+            <tr><td colspan="6" class="c muted">{{ $stock_checks->isEmpty() ? 'No end-of-shift stock checks in this period.' : 'Every count matched the records.' }}</td></tr>
         @endforelse
     </tbody>
 </table>
-<p class="muted small">Drinks are counted against the unit that was open when each order was marked ready. These are estimates for planning — physical counts remain the record. Units that were discarded or are under review are left out of the averages. Cost per drink = average unit cost of units opened ÷ average drinks per unit.</p>
+<p class="muted small">At each drawer close, staff count the sealed units left for every item that shift's sales used. Units missing from the shelf are recorded as stock-outs (or waste, if staff say so) under their name; a count higher than the system's changes nothing and is noted for the manager. "Matched" means the shelf agreed with the records.</p>
 

@@ -64,6 +64,12 @@ class CashShift extends Model
         return $this->hasMany(Order::class);
     }
 
+    /** End-of-shift stock check lines (Sales ↔ Inventory). */
+    public function stockChecks(): HasMany
+    {
+        return $this->hasMany(ShiftStockCheck::class);
+    }
+
     /**
      * Expected cash in drawer = opening + cash sales − cash refunds + cash in − cash out.
      * Card / online payments never touch the drawer.

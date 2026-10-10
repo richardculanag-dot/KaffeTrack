@@ -27,6 +27,11 @@
                 <td class="r {{ (float) $s->variance < 0 ? 'neg' : ((float) $s->variance > 0 ? 'warn' : 'pos') }}">{{ $s->variance !== null ? ((float) $s->variance == 0 ? 'Balanced' : peso($s->variance)) : 'Open' }}</td>
             </tr>
             @if ($s->notes)<tr><td></td><td colspan="9" class="muted small">Note: {{ $s->notes }}</td></tr>@endif
+            @if ($s->stockChecks->isNotEmpty())
+                @php $diff = $s->stockChecks->filter(fn ($c) => $c->outcome() !== 'Matched'); @endphp
+                <tr><td></td><td colspan="9" class="muted small">Stock check: {{ $s->stockChecks->count() }} item(s) counted —
+                    {{ $diff->isEmpty() ? 'all matched' : $diff->map(fn ($c) => $c->item?->name.' ('.$c->outcome().')')->join('; ') }}</td></tr>
+            @endif
         @empty
             <tr><td colspan="10" class="c muted">No shifts in this period.</td></tr>
         @endforelse

@@ -1,5 +1,39 @@
 # Changes after the initial build
 
+## Update 3 — Simpler Sales ↔ Inventory link: end-of-shift stock check
+
+**Why:** the Update 1 integration estimated "drinks per container" and interrupted staff during service
+(Ready prompt, toasts, alerts). During a rush that adds work at the worst moment, and the estimates were
+hard to defend. Update 3 keeps the link between sales and inventory but moves the human part to the end
+of the shift and removes every estimate. See `docs/SALES-INVENTORY.md`.
+
+**Database:** one new migration, `2026_10_13_000100_end_of_shift_stock_check`. It adds the
+`shift_stock_checks` table and **removes** the estimate columns added in Update 1 (drinks served, expected
+servings, alert levels, review fields, servings per ingredient). Run `php artisan migrate`. Estimate
+history is demo data and is not kept; stock quantities and the stock ledger are not touched.
+
+**New**
+- Cash drawer → End-of-day count is now two steps: **Stock check** (count sealed units left for every item
+  the shift's sales used; review before saving) and **Cash count**. The drawer can't close until the check
+  is done. Differences are recorded as stock-outs or waste in the ledger.
+- Closed shift details, the Cash drawer report and the Inventory report show the stock checks.
+- Financial report: **Sales vs cost of stock used** (net sales next to the purchase cost of units opened
+  and thrown away).
+- Stock out while a unit is open now marks the open one used up (one tap instead of two).
+
+**Removed**
+- "No open unit" prompt when marking Ready; servings toasts; estimate alerts in the bell.
+- Usage meter, "I checked — still enough", "Review over-usage" and the estimate fields in Stock on hand.
+- "Servings" on product ingredients and add-on rules; "Inventory estimates" in Settings;
+  "Drinks served per opened unit" in the Inventory report.
+
+**Kept:** product–ingredient links, add-on rules, the record of which items each sale used, and the POS
+"none in stock" label (now worded as a fact).
+
+**Demo data:** `php artisan db:seed --class=SalesInventoryLinkSeeder` (safe to re-run) also records which
+items the last 7 days of demo orders used and adds matched stock checks for the last 7 days of demo
+shifts, so the reports have history.
+
 ## Update 2 — Validation and safety pass (pre-defense inspection)
 
 **Database:** one new migration, `2026_10_12_000100_tighten_sales_rules` (a CHECK constraint and two
@@ -51,10 +85,10 @@ reports and the audit trail always keep their references.
 `inventory_items` and `item_usages`; nothing is renamed or removed). Run `php artisan migrate`.
 
 **New**
-- Sales ↔ Inventory integration — see `docs/SALES-INVENTORY.md`.
+- Sales ↔ Inventory integration (its estimate features were replaced in Update 3).
 - Dine-in table picker (buttons 1…N) with the number of tables in Admin → Settings; validated on the server.
-- Settings: number of tables, default estimate alert level.
-- Inventory report: "Drinks served per opened unit" section.
+- Settings: number of tables, default estimate alert level (the alert level was removed in Update 3).
+- Inventory report: "Drinks served per opened unit" section (replaced in Update 3).
 - Deployment to Render: `Dockerfile`, `docker/`, `.dockerignore`, `render.yaml`, `.gitattributes`
   (see `docs/SETUP.md` → Deploying to Render).
 

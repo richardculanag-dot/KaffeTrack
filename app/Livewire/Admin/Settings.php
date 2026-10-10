@@ -18,7 +18,7 @@ class Settings extends Component
 
     /** The settings this screen edits — each one is validated in save(). currency_symbol is fixed. */
     private const EDITABLE = ['store_name', 'store_address', 'store_contact', 'store_tin', 'vat_registered', 'vat_rate',
-        'receipt_footer', 'table_count', 'servings_alert_percent'];
+        'receipt_footer', 'table_count'];
 
     public function mount(): void
     {
@@ -39,11 +39,9 @@ class Settings extends Component
             'form.vat_rate' => ['required', 'numeric', 'min:0', 'max:30'],
             'form.receipt_footer' => ['nullable', 'string', 'max:200'],
             'form.table_count' => ['required', 'integer', 'between:1,'.Order::MAX_TABLES],
-            'form.servings_alert_percent' => ['required', 'integer', 'between:10,100'],
         ], ['form.store_tin.regex' => 'Use digits and dashes only.'], [
             'form.store_name' => 'store name', 'form.store_address' => 'address', 'form.vat_rate' => 'VAT rate', 'form.store_tin' => 'TIN',
             'form.table_count' => 'number of tables',
-            'form.servings_alert_percent' => 'alert level',
         ]);
 
         $changed = [];

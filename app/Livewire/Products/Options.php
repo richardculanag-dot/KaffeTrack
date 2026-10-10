@@ -108,7 +108,7 @@ class Options extends Component
         $this->resetValidation();
         $this->addonId = null;
         $this->addon = ['name' => '', 'price' => '', 'is_active' => true];
-        $this->rule = ['action' => '', 'role' => '', 'inventory_item_id' => '', 'servings' => 1];
+        $this->rule = ['action' => '', 'role' => '', 'inventory_item_id' => ''];
         $this->showAddon = true;
     }
 
@@ -120,8 +120,8 @@ class Options extends Component
         $this->addon = ['name' => $a->name, 'price' => (float) $a->price, 'is_active' => $a->is_active];
         $r = $a->ingredientRules->first();
         $this->rule = $r
-            ? ['action' => $r->action, 'role' => $r->role, 'inventory_item_id' => (string) $r->inventory_item_id, 'servings' => $r->servings]
-            : ['action' => '', 'role' => '', 'inventory_item_id' => '', 'servings' => 1];
+            ? ['action' => $r->action, 'role' => $r->role, 'inventory_item_id' => (string) $r->inventory_item_id]
+            : ['action' => '', 'role' => '', 'inventory_item_id' => ''];
         $this->showAddon = true;
     }
 
@@ -134,11 +134,10 @@ class Options extends Component
             'rule.action' => ['nullable', Rule::in(['', 'add', 'replace'])],
             'rule.role' => ['exclude_if:rule.action,', 'required', 'string', 'max:30', new DisplayName('“milk”')],
             'rule.inventory_item_id' => ['exclude_if:rule.action,', 'required', Rule::exists('inventory_items', 'id')->whereNull('deleted_at')],
-            'rule.servings' => ['exclude_if:rule.action,', 'required', 'numeric', 'min:0.25', 'max:10'],
         ], [
             'rule.role.required' => 'Name the role, e.g. milk.',
             'rule.inventory_item_id.required' => 'Choose the inventory item.',
-        ], ['addon.name' => 'add-on name', 'addon.price' => 'price', 'rule.servings' => 'servings'])['addon'];
+        ], ['addon.name' => 'add-on name', 'addon.price' => 'price'])['addon'];
 
         DB::transaction(function () use ($data) {
             $addon = $this->addonId ? tap(Addon::findOrFail($this->addonId))->update($data) : Addon::create($data);
@@ -151,7 +150,6 @@ class Options extends Component
                     'action' => $this->rule['action'],
                     'role' => mb_strtolower(trim($this->rule['role'])),
                     'inventory_item_id' => (int) $this->rule['inventory_item_id'],
-                    'servings' => round((float) $this->rule['servings'], 2),
                 ]);
             }
             $after = $addon->ingredientRules()->with('item')->get()->map(fn ($r) => "{$r->action} {$r->role}: {$r->item->name}")->all();

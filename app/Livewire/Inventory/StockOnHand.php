@@ -11,7 +11,6 @@ use App\Models\Supplier;
 use App\Rules\DisplayName;
 use App\Rules\UniqueName;
 use App\Services\InventoryService;
-use App\Services\ServingTracker;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
@@ -73,7 +72,10 @@ class StockOnHand extends Component
     public function stockOut(InventoryService $service, int $id): void
     {
         $item = InventoryItem::findOrFail($id);
-        if ($this->attempt(fn () => $service->stockOut($item), "1 {$item->unit} of {$item->name} is now in use.")) {
+        if ($this->attempt(fn () => $service->stockOut($item))) {
+            // Opening a new unit finishes the previous one (only one is open per item).
+            $this->toast("1 {$item->unit} of {$item->name} is now in use."
+                .($service->finishedPrevious ? ' The previous one was marked as used up.' : ''));
             $this->dispatch('stock-changed');
         }
     }
@@ -99,36 +101,11 @@ class StockOnHand extends Component
         }
     }
 
-    /** After an estimate alert: staff checked the container and there is still enough. */
-    public function acknowledge(ServingTracker $tracker, int $usageId): void
-    {
-        $usage = ItemUsage::with('item')->findOrFail($usageId);
-        if ($this->attempt(fn () => $tracker->acknowledge($usage), "Noted — {$usage->item->name} still has enough. You'll be reminded again if it reaches its usual count.")) {
-            $this->dispatch('stock-changed');
-        }
-    }
-
-    /** Manager reviews a unit that served far more drinks than usual (something was probably not recorded). */
-    public function resolveFlag(ServingTracker $tracker, int $usageId, string $note = ''): void
-    {
-        $this->authorize('manage');
-        if (mb_strlen(trim($note)) < 3) {
-            $this->toast('Explain what happened (at least 3 characters).', 'error');
-
-            return;
-        }
-        $usage = ItemUsage::with('item')->findOrFail($usageId);
-        if ($this->attempt(fn () => $tracker->resolve($usage, mb_substr(trim($note), 0, 250)), "Review recorded for {$usage->item->name}. It won't affect the usual count.")) {
-            $this->dispatch('stock-changed');
-        }
-    }
-
     /* ── Item CRUD (manager) ─────────────────────────────── */
 
     private function blankForm(): array
     {
-        return ['name' => '', 'sku' => '', 'item_category_id' => '', 'default_supplier_id' => '', 'unit' => '', 'reorder_level' => 2, 'track_expiry' => true, 'notes' => '', 'is_active' => true,
-            'tracks_servings' => false, 'expected_servings' => '', 'servings_alert_percent' => ''];
+        return ['name' => '', 'sku' => '', 'item_category_id' => '', 'default_supplier_id' => '', 'unit' => '', 'reorder_level' => 2, 'track_expiry' => true, 'notes' => '', 'is_active' => true];
     }
 
     public function create(): void
@@ -146,10 +123,7 @@ class StockOnHand extends Component
         $this->resetValidation();
         $item = InventoryItem::findOrFail($id);
         $this->editingId = $id;
-        $this->form = $item->only(['name', 'sku', 'item_category_id', 'default_supplier_id', 'unit', 'reorder_level', 'track_expiry', 'notes', 'is_active',
-            'tracks_servings', 'expected_servings', 'servings_alert_percent']);
-        $this->form['expected_servings'] ??= '';
-        $this->form['servings_alert_percent'] ??= '';
+        $this->form = $item->only(['name', 'sku', 'item_category_id', 'default_supplier_id', 'unit', 'reorder_level', 'track_expiry', 'notes', 'is_active']);
         $this->form['sku'] ??= '';
         $this->form['notes'] ??= '';
         $this->form['default_supplier_id'] ??= '';
@@ -169,17 +143,10 @@ class StockOnHand extends Component
             'form.track_expiry' => ['boolean'],
             'form.notes' => ['nullable', 'string', 'max:1000'],
             'form.is_active' => ['boolean'],
-            'form.tracks_servings' => ['boolean'],
-            'form.expected_servings' => ['nullable', 'integer', 'min:1', 'max:10000'],
-            'form.servings_alert_percent' => ['nullable', 'integer', 'min:10', 'max:100'],
         ], [], [
             'form.name' => 'item name', 'form.sku' => 'SKU', 'form.item_category_id' => 'category',
             'form.default_supplier_id' => 'supplier', 'form.unit' => 'unit', 'form.reorder_level' => 'reorder level',
-            'form.expected_servings' => 'starting estimate', 'form.servings_alert_percent' => 'alert level',
         ])['form'];
-
-        $data['expected_servings'] = filled($data['expected_servings'] ?? null) ? (int) $data['expected_servings'] : null;
-        $data['servings_alert_percent'] = filled($data['servings_alert_percent'] ?? null) ? (int) $data['servings_alert_percent'] : null;
 
         $data['sku'] = filled($data['sku'] ?? null) ? strtoupper(trim($data['sku'])) : null;
         $data['default_supplier_id'] = $data['default_supplier_id'] ?: null;
@@ -281,7 +248,7 @@ class StockOnHand extends Component
         $this->filter = in_array($this->filter, ['low', 'out', 'in_use', 'expiring'], true) ? $this->filter : '';
 
         $items = InventoryItem::query()
-            ->with(['category', 'currentUsage.opener', 'currentUsage.acknowledger', 'currentUsage.resolver', 'availableBatches'])
+            ->with(['category', 'currentUsage.opener', 'availableBatches'])
             ->when($this->search, fn ($q) => $q->where(fn ($w) => $w->whereRaw('lower(name) like ?', ['%'.mb_strtolower($this->search).'%'])->orWhereRaw('lower(sku) like ?', ['%'.mb_strtolower($this->search).'%'])))
             ->when($this->category, fn ($q) => $q->where('item_category_id', $this->category))
             ->when($this->filter === 'low', fn ($q) => $q->lowStock()->where('quantity_on_hand', '>', 0))
@@ -306,7 +273,7 @@ class StockOnHand extends Component
             $history = InventoryItem::with([
                 'category', 'defaultSupplier',
                 'batches' => fn ($q) => $q->where('quantity_remaining', '>', 0)->orderByRaw('expiry_date ASC NULLS LAST')->with('stockIn.supplier'),
-                'usages' => fn ($q) => $q->latest('opened_at')->limit(15)->with(['opener', 'closer', 'resolver']),
+                'usages' => fn ($q) => $q->latest('opened_at')->limit(15)->with(['opener', 'closer']),
             ])->find($this->historyId);
         }
 
@@ -316,7 +283,6 @@ class StockOnHand extends Component
             'categories' => ItemCategory::withCount('items')->orderBy('name')->get(),
             'suppliers' => Supplier::active()->orderBy('name')->pluck('name', 'id'),
             'history' => $history,
-            'usual' => $history?->usualServings(),
             'adjusting' => $this->adjustingId ? InventoryItem::with(['availableBatches'])->find($this->adjustingId) : null,
         ]);
     }
