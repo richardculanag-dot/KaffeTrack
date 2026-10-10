@@ -1,5 +1,50 @@
 # Changes after the initial build
 
+## Update 2 — Validation and safety pass (pre-defense inspection)
+
+**Database:** one new migration, `2026_10_12_000100_tighten_sales_rules` (a CHECK constraint and two
+unique indexes; no tables or columns added or removed). Run `php artisan migrate`.
+
+**Names and text fields** — the same rule everywhere a name is typed
+- Names must contain a letter and use only letters, numbers, spaces and `- & ' . , ( ) / + % # ₱ !`
+  (`app/Rules/DisplayName.php`). Applies to products, sizes, menu and item categories, add-ons,
+  discounts, inventory items and units, suppliers and contact persons, expense categories, user names,
+  ingredient roles and the POS customer name.
+- Names are saved trimmed with single spaces (`app/Models/Concerns/NormalisesName.php`).
+- Duplicates are checked ignoring letter case and extra spaces, among records that are not archived
+  (`app/Rules/UniqueName.php`): "Café Latte" and " café  latte" are the same name. This also covers
+  product codes, SKUs, usernames and emails.
+- Phone numbers: digits, spaces, `+ ( ) -`, 7–30 characters. Product codes and SKUs: letters, numbers,
+  `- _ .`. Senior/PWD ID numbers: letters, numbers, spaces and dashes.
+
+**Sales**
+- A fully discounted (₱0.00) order can now be paid; it can't be refunded (nothing to return).
+- One payment and one refund per order, enforced by the database; two people clicking at once can no
+  longer record it twice. Opening the drawer at the same moment from two devices shows a message
+  instead of an error page.
+- Cash received is capped at ₱1,000,000 in the order queue (as it already was at the POS).
+
+**Inventory**
+- Stock in: expiry dates must be today or later; delivery dates up to 30 days back; one delivery may
+  total at most ₱10,000,000.
+- Archive → Restore also checks SKUs, product codes, usernames and emails (ignoring case), not only names.
+
+**Accounts and security**
+- Role and active-account checks now run on every button press, not only when a page is opened. A
+  manager demoted to staff, or a deactivated user, is stopped on their next action.
+- Promoting a staff member to manager requires a refund PIN.
+- Sign-in throttling can't be bypassed by adding spaces or changing letter case; the "account
+  deactivated" message only appears after the correct password.
+- Wrong refund PINs are limited per manager (5 tries, then 5 minutes), not per browser session.
+- Record IDs used by edit/payment/refund dialogs can't be changed from the browser (`#[Locked]`); a
+  tampered request gets 403.
+- Settings only saves the settings shown on the screen.
+- Typing an invalid date, month or filter in the address bar shows the normal page instead of an error.
+- Expense and income dates must be from 2020 onward.
+
+**Decided against:** permanent delete. Archive stays the only way to remove records, so sales history,
+reports and the audit trail always keep their references.
+
 ## Update 1 — Sales ↔ Inventory integration, table picker, deployment
 
 **Database:** one new migration, `2026_10_11_000100_link_sales_to_inventory` (adds 3 tables and columns to

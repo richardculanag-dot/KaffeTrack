@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\NormalisesName;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -13,7 +14,7 @@ use Illuminate\Support\Facades\Hash;
 
 class User extends Authenticatable
 {
-    use Auditable, Notifiable, SoftDeletes;
+    use NormalisesName, Auditable, Notifiable, SoftDeletes;
 
     public const ROLE_MANAGER = 'manager';
     public const ROLE_STAFF = 'staff';

@@ -4,6 +4,7 @@ namespace App\Livewire\Auth;
 
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Layout;
@@ -27,8 +28,10 @@ class Login extends Component
     {
         $this->validate();
 
-        // Brute-force protection: 5 attempts per minute per login + IP.
-        $key = Str::transliterate(Str::lower($this->login).'|'.request()->ip());
+        // Brute-force protection: 5 attempts per minute per login + IP. The key uses the same trimmed,
+        // lower-case value as the lookup, so " admin" and "admin " cannot each get their own 5 tries.
+        $value = mb_strtolower(trim($this->login));
+        $key = 'login:'.Str::transliterate($value).'|'.request()->ip();
         if (RateLimiter::tooManyAttempts($key, 5)) {
             $seconds = RateLimiter::availableIn($key);
             $this->addError('login', "Too many sign-in attempts. Try again in {$seconds} seconds.");
@@ -36,17 +39,18 @@ class Login extends Component
             return null;
         }
 
-        $field = filter_var($this->login, FILTER_VALIDATE_EMAIL) ? 'email' : 'username';
-        $value = mb_strtolower(trim($this->login));
+        $field = filter_var($value, FILTER_VALIDATE_EMAIL) ? 'email' : 'username';
 
+        // Only reveal that an account is deactivated to someone who knows its password.
         $user = User::where($field, $value)->first();
-        if ($user && ! $user->is_active) {
+        if ($user && ! $user->is_active && Hash::check($this->password, $user->password)) {
+            RateLimiter::hit($key);
             $this->addError('login', 'This account is deactivated. Please contact a manager.');
 
             return null;
         }
 
-        if (! Auth::attempt([$field => $value, 'password' => $this->password], $this->remember)) {
+        if (! Auth::attempt([$field => $value, 'password' => $this->password, 'is_active' => true], $this->remember)) {
             RateLimiter::hit($key);
             $this->reset('password');
             $this->addError('login', 'The username/email or password is incorrect.');

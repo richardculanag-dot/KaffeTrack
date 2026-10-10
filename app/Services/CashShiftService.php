@@ -30,15 +30,23 @@ class CashShiftService
             throw new BusinessRuleException('Opening cash cannot be negative.');
         }
 
-        $shift = CashShift::create([
-            'opened_by' => $by->id,
-            'opened_at' => $at,
-            'opening_cash' => round($openingCash, 2),
-            'status' => 'open',
-            'notes' => $notes,
-            'created_at' => $at,
-            'updated_at' => $at,
-        ]);
+        try {
+            $shift = CashShift::create([
+                'opened_by' => $by->id,
+                'opened_at' => $at,
+                'opening_cash' => round($openingCash, 2),
+                'status' => 'open',
+                'notes' => $notes,
+                'created_at' => $at,
+                'updated_at' => $at,
+            ]);
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Two people pressed "Open drawer" at the same moment: the one-open-shift index caught it.
+            if (str_contains($e->getMessage(), 'cash_shifts_one_open')) {
+                throw new BusinessRuleException('Someone just opened the drawer. Refresh the page.');
+            }
+            throw $e;
+        }
 
         AuditLogger::log('sales', 'shift_opened', 'Opened cash drawer with '.peso($openingCash).' starting cash', $shift,
             null, ['opening_cash' => round($openingCash, 2)], $by);

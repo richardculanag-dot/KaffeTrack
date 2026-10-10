@@ -4,7 +4,10 @@ namespace App\Livewire\Inventory;
 
 use App\Livewire\Concerns\WithToasts;
 use App\Models\Supplier;
+use App\Rules\DisplayName;
+use App\Rules\UniqueName;
 use Illuminate\Validation\Rule;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -19,6 +22,7 @@ class Suppliers extends Component
     public string $search = '';
 
     public bool $showForm = false;
+    #[Locked] // set only by the server (open/edit methods), never by the browser
     public ?int $editingId = null;
     public array $form = [];
 
@@ -53,8 +57,8 @@ class Suppliers extends Component
     public function save(): void
     {
         $data = $this->validate([
-            'form.name' => ['required', 'string', 'max:150', Rule::unique('suppliers', 'name')->ignore($this->editingId)->whereNull('deleted_at')],
-            'form.contact_person' => ['nullable', 'string', 'max:100'],
+            'form.name' => ['required', 'string', 'max:150', new DisplayName('“Mindanao Dairy Co-op”'), new UniqueName('suppliers', 'name', $this->editingId)],
+            'form.contact_person' => ['nullable', 'string', 'max:100', new DisplayName('“Liza Gomez”')],
             'form.phone' => ['nullable', 'string', 'max:30', 'regex:/^[0-9+()\-\s]{7,30}$/'],
             'form.email' => ['nullable', 'email', 'max:255'],
             'form.address' => ['nullable', 'string', 'max:255'],

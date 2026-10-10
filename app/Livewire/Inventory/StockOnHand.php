@@ -8,9 +8,12 @@ use App\Models\ItemCategory;
 use App\Models\ItemUsage;
 use App\Models\StockBatch;
 use App\Models\Supplier;
+use App\Rules\DisplayName;
+use App\Rules\UniqueName;
 use App\Services\InventoryService;
 use App\Services\ServingTracker;
 use Illuminate\Validation\Rule;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -39,11 +42,13 @@ class StockOnHand extends Component
 
     // Item form
     public bool $showForm = false;
+    #[Locked] // set only by the server (open/edit methods), never by the browser
     public ?int $editingId = null;
     public array $form = [];
 
     // Adjustment
     public bool $showAdjust = false;
+    #[Locked] // set only by the server (open/edit methods), never by the browser
     public ?int $adjustingId = null;
     public string $adjustType = 'adjustment_out';
     public $adjustQty = 1;
@@ -155,11 +160,11 @@ class StockOnHand extends Component
     {
         $this->authorize('manage');
         $data = $this->validate([
-            'form.name' => ['required', 'string', 'max:150', Rule::unique('inventory_items', 'name')->ignore($this->editingId)->whereNull('deleted_at')],
-            'form.sku' => ['nullable', 'string', 'max:40', Rule::unique('inventory_items', 'sku')->ignore($this->editingId)->whereNull('deleted_at')],
+            'form.name' => ['required', 'string', 'max:150', new DisplayName('“Fresh Milk”'), new UniqueName('inventory_items', 'name', $this->editingId)],
+            'form.sku' => ['nullable', 'string', 'max:40', 'regex:/^[A-Za-z0-9][A-Za-z0-9\-_.]*$/', new UniqueName('inventory_items', 'sku', $this->editingId)],
             'form.item_category_id' => ['required', Rule::exists('item_categories', 'id')->whereNull('deleted_at')],
             'form.default_supplier_id' => ['nullable', Rule::exists('suppliers', 'id')->whereNull('deleted_at')],
-            'form.unit' => ['required', 'string', 'max:40'],
+            'form.unit' => ['required', 'string', 'max:40', new DisplayName('“carton (1 L)”')],
             'form.reorder_level' => ['required', 'integer', 'min:0', 'max:10000'],
             'form.track_expiry' => ['boolean'],
             'form.notes' => ['nullable', 'string', 'max:1000'],
@@ -242,7 +247,7 @@ class StockOnHand extends Component
     public function addCategory(): void
     {
         $this->authorize('manage');
-        $this->validate(['newCategory' => ['required', 'string', 'max:100', Rule::unique('item_categories', 'name')->whereNull('deleted_at')]], [], ['newCategory' => 'category name']);
+        $this->validate(['newCategory' => ['required', 'string', 'max:100', new DisplayName('“Dairy & Alternatives”'), new UniqueName('item_categories')]], [], ['newCategory' => 'category name']);
         ItemCategory::create(['name' => trim($this->newCategory)]);
         $this->toast("Category “{$this->newCategory}” added.");
         $this->newCategory = '';
@@ -251,7 +256,7 @@ class StockOnHand extends Component
     public function renameCategory(): void
     {
         $this->authorize('manage');
-        $this->validate(['renameValue' => ['required', 'string', 'max:100', Rule::unique('item_categories', 'name')->ignore($this->renamingId)->whereNull('deleted_at')]], [], ['renameValue' => 'category name']);
+        $this->validate(['renameValue' => ['required', 'string', 'max:100', new DisplayName('“Dairy & Alternatives”'), new UniqueName('item_categories', 'name', $this->renamingId)]], [], ['renameValue' => 'category name']);
         ItemCategory::findOrFail($this->renamingId)->update(['name' => trim($this->renameValue)]);
         $this->renamingId = null;
         $this->toast('Category renamed.');
@@ -272,6 +277,9 @@ class StockOnHand extends Component
 
     public function render()
     {
+        $this->category = (string) (clean_id($this->category) ?? '');
+        $this->filter = in_array($this->filter, ['low', 'out', 'in_use', 'expiring'], true) ? $this->filter : '';
+
         $items = InventoryItem::query()
             ->with(['category', 'currentUsage.opener', 'currentUsage.acknowledger', 'currentUsage.resolver', 'availableBatches'])
             ->when($this->search, fn ($q) => $q->where(fn ($w) => $w->whereRaw('lower(name) like ?', ['%'.mb_strtolower($this->search).'%'])->orWhereRaw('lower(sku) like ?', ['%'.mb_strtolower($this->search).'%'])))

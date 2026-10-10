@@ -4,9 +4,12 @@ namespace App\Livewire\Admin;
 
 use App\Livewire\Concerns\WithToasts;
 use App\Models\User;
+use App\Rules\DisplayName;
+use App\Rules\UniqueName;
 use App\Services\AuditLogger;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -23,10 +26,12 @@ class Users extends Component
     public string $role = '';
 
     public bool $showForm = false;
+    #[Locked] // set only by the server (open/edit methods), never by the browser
     public ?int $editingId = null;
     public array $form = [];
 
     public bool $showPassword = false;
+    #[Locked] // set only by the server (open/edit methods), never by the browser
     public ?int $passwordUserId = null;
     public string $newPassword = '';
     public string $newPassword_confirmation = '';
@@ -62,14 +67,15 @@ class Users extends Component
         $this->form['username'] = mb_strtolower(trim($this->form['username'] ?? ''));
 
         $rules = [
-            'form.name' => ['required', 'string', 'max:150'],
+            'form.name' => ['required', 'string', 'max:150', new DisplayName('“Bea Ramirez”')],
             'form.username' => ['required', 'string', 'min:3', 'max:50', 'regex:/^[a-zA-Z0-9._-]+$/',
-                Rule::unique('users', 'username')->ignore($this->editingId)->whereNull('deleted_at')],
-            'form.email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore($this->editingId)->whereNull('deleted_at')],
-            'form.phone' => ['nullable', 'string', 'max:30'],
+                new UniqueName('users', 'username', $this->editingId)],
+            'form.email' => ['required', 'email', 'max:255', new UniqueName('users', 'email', $this->editingId)],
+            'form.phone' => ['nullable', 'string', 'max:30', 'regex:/^[0-9+()\-\s]{7,30}$/'],
             'form.role' => ['required', Rule::in([User::ROLE_MANAGER, User::ROLE_STAFF])],
             'form.is_active' => ['boolean'],
-            'form.pin' => [$this->form['role'] === 'manager' && ! $this->editingId ? 'required' : 'nullable', 'digits_between:4,6'],
+            // A manager must always have a refund PIN — including a staff member being promoted.
+            'form.pin' => [$this->form['role'] === 'manager' && ! $this->hasPin($this->editingId) ? 'required' : 'nullable', 'digits_between:4,6'],
         ];
         if (! $this->editingId) {
             $rules['form.password'] = ['required', 'confirmed', Password::min(8)->letters()->numbers()];
@@ -107,6 +113,11 @@ class Users extends Component
             $this->toast("Account created for {$data['name']}. Share the username and password with them privately.");
         }
         $this->showForm = false;
+    }
+
+    private function hasPin(?int $userId): bool
+    {
+        return $userId !== null && User::whereKey($userId)->whereNotNull('pin')->exists();
     }
 
     public function openPassword(int $id): void
@@ -164,6 +175,7 @@ class Users extends Component
     public function render()
     {
         return view('livewire.admin.users', [
+            'pinRequired' => ! $this->hasPin($this->editingId),
             'users' => User::query()
                 ->withCount(['orders' => fn ($q) => $q->where('created_at', '>=', today()->subDays(29))])
                 ->when($this->search, fn ($q) => $q->where(fn ($w) => $w->whereRaw('lower(name) like ?', ['%'.mb_strtolower($this->search).'%'])

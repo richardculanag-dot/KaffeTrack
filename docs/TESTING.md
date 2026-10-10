@@ -89,3 +89,24 @@ errors and no browser console errors. At 390 px width no page scrolls horizontal
 | SI-13 | As manager, unit far past usual (≥150 %) | Bell "Review"; Stock on hand ⋯ → *Review over-usage…* requires a reason; audit log entry; unit left out of the usual count |
 | SI-14 | Reports → Inventory PDF | Section "Drinks served per opened unit (estimate)" |
 
+
+## Update 2 — validation and safety
+
+| # | Steps | Expected |
+|---|---|---|
+| V-1 | Categories & add-ons → Add category "  espresso   CLASSICS " | "already used by another record"; nothing saved |
+| V-2 | Add category "12345" | "must include letters" |
+| V-3 | Stock on hand → Add item named "oat milk", SKU "dy-oat", unit "-1" | Errors on name, SKU and unit |
+| V-4 | Suppliers → Add an existing supplier name in capitals, contact person "999" | Errors on both |
+| V-5 | Users → Add username "MANAGER2" | "already used" |
+| V-6 | Users → Edit a staff member, set role to Manager, leave PIN empty | "Managers need a PIN" |
+| V-7 | POS: 100 % discount order, pay cash ₱0 | Order paid; refund says there is nothing to refund |
+| V-8 | Stock in: expiry yesterday; date 45 days ago | Both rejected with messages |
+| V-9 | Stock in: qty 10,000 × ₱999,999 | "over the ₱10,000,000.00 limit" under the total |
+| V-10 | Manager A on Users; demote A in another session; A clicks Add user | 403, nothing opens |
+| V-11 | Staff on Order queue; deactivate them; they click anything | Sent to the login page |
+| V-12 | Login 6× with wrong password using "carlo", " CARLO", "Carlo " … | 6th attempt: "Too many sign-in attempts" |
+| V-13 | Deactivated user, wrong password / right password | Generic error / "account is deactivated" |
+| V-14 | Open `/orders?date=xx`, `/finance?month=abc`, `/reports?preset=custom&from=nope`, `/archive?source=x` | Normal page, no error |
+| V-15 | Browser console on Order queue: `$wire.set('payingId', 1)` | 403 |
+| V-16 | Archive an item, add a new item with its SKU, restore the archived one | "already uses the same SKU" |

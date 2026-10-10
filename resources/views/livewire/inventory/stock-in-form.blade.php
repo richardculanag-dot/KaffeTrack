@@ -7,7 +7,7 @@
         <div class="panel-header"><h2 class="panel-title">Delivery details</h2></div>
         <div class="grid gap-4 p-5 md:grid-cols-4">
             <x-select label="Supplier" name="supplierId" wire:model.live="supplierId" :options="$suppliers" placeholder="Choose a supplier" required class="md:col-span-2" />
-            <x-input label="Date received" name="receivedDate" type="date" max="{{ today()->toDateString() }}" wire:model.blur="receivedDate" required />
+            <x-input label="Date received" name="receivedDate" type="date" min="{{ today()->subDays(\App\Livewire\Inventory\StockInForm::BACKDATE_DAYS)->toDateString() }}" max="{{ today()->toDateString() }}" wire:model.blur="receivedDate" required />
             <x-input label="Supplier invoice no." name="invoiceNumber" wire:model.blur="invoiceNumber" optional />
         </div>
     </section>
@@ -39,7 +39,7 @@
                     </div>
                     <x-input :label="$i === 0 ? 'Qty' : null" name="lines.{{ $i }}.quantity" type="number" min="1" wire:model.live.debounce.400ms="lines.{{ $i }}.quantity" class="md:col-span-1" aria-label="Quantity" />
                     <x-input :label="$i === 0 ? 'Unit cost' : null" name="lines.{{ $i }}.unit_cost" type="number" min="0" step="0.01" prefix="₱" wire:model.live.debounce.400ms="lines.{{ $i }}.unit_cost" class="md:col-span-2" aria-label="Unit cost" />
-                    <x-input :label="$i === 0 ? 'Expiry date' : null" name="lines.{{ $i }}.expiry_date" type="date" min="{{ $receivedDate }}" wire:model.blur="lines.{{ $i }}.expiry_date" class="md:col-span-2" aria-label="Expiry date"
+                    <x-input :label="$i === 0 ? 'Expiry date' : null" name="lines.{{ $i }}.expiry_date" type="date" min="{{ today()->toDateString() }}" wire:model.blur="lines.{{ $i }}.expiry_date" class="md:col-span-2" aria-label="Expiry date"
                              :help="$item && ! $item->track_expiry ? 'Optional for this item' : null" />
                     <x-input :label="$i === 0 ? 'Batch / lot' : null" name="lines.{{ $i }}.batch_code" wire:model.blur="lines.{{ $i }}.batch_code" class="md:col-span-1" aria-label="Batch code" placeholder="—" />
                     <div class="flex items-center justify-between gap-2 md:col-span-2 {{ $i === 0 ? 'md:pt-7' : '' }}">
@@ -52,6 +52,7 @@
         <div class="flex flex-wrap items-center justify-between gap-3 border-t border-sage-200 px-5 py-4">
             <button type="button" class="btn-secondary" wire:click="addLine"><x-icon name="plus" class="size-4" /> Add another item</button>
             <p class="text-sage-600">Delivery total <span class="ml-2 font-display text-2xl font-bold text-ink tabular">{{ peso($this->total) }}</span></p>
+            @error('lines') <p class="field-message w-full text-right text-sm text-danger-600" role="alert">{{ $message }}</p> @enderror
         </div>
     </section>
 

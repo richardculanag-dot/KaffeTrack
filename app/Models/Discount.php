@@ -3,12 +3,13 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\NormalisesName;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Discount extends Model
 {
-    use Auditable, SoftDeletes;
+    use NormalisesName, Auditable, SoftDeletes;
 
     protected string $auditModule = 'products';
 

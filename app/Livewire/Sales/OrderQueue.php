@@ -12,6 +12,7 @@ use App\Services\OrderService;
 use App\Services\ServingTracker;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\Rule;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -36,12 +37,14 @@ class OrderQueue extends Component
 
     // "Mark ready" prompt when a drink uses an item with no open unit (Sales ↔ Inventory link)
     public bool $showReadyPrompt = false;
+    #[Locked] // set only by the server (open/edit methods), never by the browser
     public ?int $readyPromptId = null;
     /** @var array<int, array{name:string, unit:string, in_storage:int}> */
     public array $readyPromptItems = [];
 
     // Collect payment
     public bool $showPayment = false;
+    #[Locked] // set only by the server (open/edit methods), never by the browser
     public ?int $payingId = null;
     public string $payMethod = 'cash';
     public $payTendered = '';
@@ -50,6 +53,7 @@ class OrderQueue extends Component
 
     // Refund
     public bool $showRefund = false;
+    #[Locked] // set only by the server (open/edit methods), never by the browser
     public ?int $refundingId = null;
     public ?int $refundManagerId = null;
     public string $refundPin = '';
@@ -153,7 +157,7 @@ class OrderQueue extends Component
         $order = Order::findOrFail($this->payingId);
         $this->validate([
             'payMethod' => ['required', Rule::in(array_keys(Payment::METHODS))],
-            'payTendered' => [Rule::requiredIf($this->payMethod === 'cash'), 'nullable', 'numeric', 'min:'.$order->total_amount],
+            'payTendered' => [Rule::requiredIf($this->payMethod === 'cash'), 'nullable', 'numeric', 'min:'.$order->total_amount, 'max:1000000'],
             'payReference' => [Rule::requiredIf($this->payMethod !== 'cash'), 'nullable', 'string', 'min:4', 'max:100'],
         ], [
             'payTendered.min' => 'Cash received must be at least '.peso($order->total_amount).'.',
@@ -198,8 +202,9 @@ class OrderQueue extends Component
 
         $manager = User::active()->where('role', 'manager')->find($this->refundManagerId);
 
-        // Throttle PIN guessing: 5 wrong PINs per 5 minutes per session.
-        $key = 'refund-pin:'.session()->getId();
+        // Throttle PIN guessing per MANAGER (not per session — logging out and in must not reset it):
+        // 5 wrong PINs lock that manager's refund approval for 5 minutes.
+        $key = 'refund-pin:manager:'.(int) $this->refundManagerId;
         if (RateLimiter::tooManyAttempts($key, 5)) {
             $this->addError('refundPin', 'Too many wrong PINs. Try again in a few minutes.');
 
@@ -231,6 +236,9 @@ class OrderQueue extends Component
 
     public function render()
     {
+        $this->date = clean_date($this->date) ?? today()->toDateString();
+        $this->status = array_key_exists($this->status, Order::STATUSES) ? $this->status : '';
+
         $queue = Order::with(['items.addons', 'payment'])
             ->activeQueue()->orderBy('created_at')->get()
             ->groupBy('status');

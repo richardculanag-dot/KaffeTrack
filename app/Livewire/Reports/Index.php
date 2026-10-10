@@ -44,6 +44,9 @@ class Index extends Component
         if (! array_key_exists($this->type, ReportBuilder::TYPES)) {
             $this->type = 'sales';
         }
+        // Values from the URL may be hand-edited: keep only real dates.
+        $this->from = clean_date($this->from) ?? '';
+        $this->to = clean_date($this->to) ?? '';
         if ($this->from && $this->to) {
             $this->preset = 'custom';
         } else {
@@ -73,7 +76,7 @@ class Index extends Component
             'yesterday' => [today()->subDay(), today()->subDay()],
             '7d' => [today()->subDays(6), today()],
             'last_month' => [today()->subMonthNoOverflow()->startOfMonth(), today()->subMonthNoOverflow()->endOfMonth()],
-            'custom' => [Carbon::parse($this->from ?: today()), Carbon::parse($this->to ?: today())],
+            'custom' => [Carbon::parse(clean_date($this->from) ?? today()), Carbon::parse(clean_date($this->to) ?? today())],
             default => [today()->startOfMonth(), today()],
         };
         $this->from = $f->toDateString();

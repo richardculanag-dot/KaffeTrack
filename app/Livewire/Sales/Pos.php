@@ -10,6 +10,7 @@ use App\Models\Discount;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\Setting;
+use App\Rules\DisplayName;
 use App\Services\CashShiftService;
 use App\Services\OrderService;
 use Illuminate\Support\Facades\Validator;
@@ -57,12 +58,12 @@ class Pos extends Component
                 'cart.*.addon_ids.*' => ['integer'],
                 'cart.*.notes' => ['nullable', 'string', 'max:120'],
                 'meta.order_type' => ['required', Rule::in(array_keys(Order::TYPES))],
-                'meta.customer_name' => ['nullable', 'string', 'max:100'],
+                'meta.customer_name' => ['nullable', 'string', 'max:100', new DisplayName('“Ana”')],
                 // Only checked for dine-in; takeout orders never store a table.
                 'meta.table_number' => ['exclude_unless:meta.order_type,dine_in', 'nullable', 'integer', 'between:1,'.Order::tableCount()],
                 'meta.notes' => ['nullable', 'string', 'max:255'],
                 'meta.discount_id' => ['nullable', 'integer'],
-                'meta.discount_id_number' => ['nullable', 'string', 'max:50'],
+                'meta.discount_id_number' => ['nullable', 'string', 'max:50', 'regex:/^[A-Za-z0-9][A-Za-z0-9\-\s]*$/'],
                 'payment' => ['nullable', 'array'],
                 'payment.method' => ['required_with:payment', Rule::in(array_keys(Payment::METHODS))],
                 'payment.amount_tendered' => ['nullable', 'numeric', 'min:0', 'max:1000000'],
@@ -73,7 +74,9 @@ class Pos extends Component
                 'meta.order_type.required' => 'Choose dine-in or takeout.',
                 'meta.table_number.integer' => 'Choose a table from the list.',
                 'meta.table_number.between' => 'Choose a table from 1 to '.Order::tableCount().'.',
-            ])->validate();
+                'meta.discount_id_number.regex' => 'The ID number may only use letters, numbers, spaces and dashes.',
+            ], ['meta.customer_name' => 'customer name', 'meta.discount_id_number' => 'ID number'])->validate();
+            $data['meta']['customer_name'] = filled($data['meta']['customer_name'] ?? null) ? DisplayName::clean($data['meta']['customer_name']) : null;
 
             $order = $orders->place($data['cart'], $data['meta'], $data['payment'] ?? null);
         } catch (ValidationException $e) {

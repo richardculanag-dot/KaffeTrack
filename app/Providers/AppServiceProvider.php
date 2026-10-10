@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
+use Livewire\Livewire;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -57,6 +58,14 @@ class AppServiceProvider extends ServiceProvider
             'expense' => Models\Expense::class,
             'income' => Models\Income::class,
             'audit_log' => Models\AuditLog::class,
+        ]);
+
+        // SECURITY: Livewire actions (button clicks) are separate requests to /livewire/update. Re-run the
+        // page's role and active-account checks on every one of them, not only when the page first loads —
+        // otherwise a demoted or deactivated user with a page still open could keep using manager actions.
+        Livewire::addPersistentMiddleware([
+            \App\Http\Middleware\EnsureUserHasRole::class,
+            \App\Http\Middleware\EnsureUserIsActive::class,
         ]);
 
         // Role-based authorisation. Managers can do everything; staff get the POS and stock-out.

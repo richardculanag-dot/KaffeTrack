@@ -42,13 +42,19 @@ class Archive extends Component
         $record = $class::onlyTrashed()->findOrFail($id);
 
         // A restored record must not collide with an active one that reuses its unique name.
+        // Compared the same way the forms do: ignoring case and extra spaces.
+        $same = fn (string $column, ?string $value) => $value !== null && $value !== ''
+            && $class::whereRaw("lower(regexp_replace(trim({$column}), '\\s+', ' ', 'g')) = ?", [mb_strtolower(preg_replace('/\s+/u', ' ', trim($value)))])->exists();
+
         $conflict = match ($source) {
-            'users' => Models\User::where(fn ($q) => $q->where('email', $record->email)->orWhere('username', $record->username))->exists(),
-            'expenses', 'incomes' => false,
-            default => $class::whereRaw('lower(name) = ?', [mb_strtolower($record->name)])->exists(),
+            'users' => $same('username', $record->username) ? 'username' : ($same('email', $record->email) ? 'email' : null),
+            'expenses', 'incomes' => null,
+            'products' => $same('name', $record->name) ? 'name' : ($same('code', $record->code) ? 'product code' : null),
+            'inventory' => $same('name', $record->name) ? 'name' : ($same('sku', $record->sku) ? 'SKU' : null),
+            default => $same('name', $record->name) ? 'name' : null,
         };
         if ($conflict) {
-            $this->toast('An active record with the same name already exists. Rename or archive it first.', 'error');
+            $this->toast("An active record already uses the same {$conflict}. Rename or archive it first.", 'error');
 
             return;
         }
@@ -72,8 +78,11 @@ class Archive extends Component
 
     public function render()
     {
+        if (! isset(self::SOURCES[$this->source])) {
+            $this->source = 'products'; // ?source=anything-else in the URL
+        }
         $counts = collect(self::SOURCES)->map(fn ($s) => $s[1]::onlyTrashed()->count());
-        $class = self::SOURCES[$this->source][1] ?? Models\Product::class;
+        $class = self::SOURCES[$this->source][1];
 
         return view('livewire.admin.archive', [
             'counts' => $counts,

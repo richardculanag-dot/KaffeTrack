@@ -3,13 +3,14 @@
 namespace App\Models;
 
 use App\Models\Concerns\Auditable;
+use App\Models\Concerns\NormalisesName;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class ExpenseCategory extends Model
 {
-    use Auditable, SoftDeletes;
+    use NormalisesName, Auditable, SoftDeletes;
 
     public const INVENTORY_PURCHASES = 'Inventory Purchases';
 

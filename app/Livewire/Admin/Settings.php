@@ -16,9 +16,13 @@ class Settings extends Component
 
     public array $form = [];
 
+    /** The settings this screen edits — each one is validated in save(). currency_symbol is fixed. */
+    private const EDITABLE = ['store_name', 'store_address', 'store_contact', 'store_tin', 'vat_registered', 'vat_rate',
+        'receipt_footer', 'table_count', 'servings_alert_percent'];
+
     public function mount(): void
     {
-        foreach (array_keys(Setting::DEFAULTS) as $key) {
+        foreach (self::EDITABLE as $key) {
             $this->form[$key] = Setting::get($key);
         }
         $this->form['vat_registered'] = Setting::bool('vat_registered');
@@ -44,7 +48,10 @@ class Settings extends Component
 
         $changed = [];
         Setting::$auditingEnabled = false; // one summarised audit entry instead of one per key
-        foreach ($this->form as $key => $value) {
+        // Only known settings are saved. $form is public, so a crafted request could add extra keys
+        // (e.g. via $wire.set('form.anything', ...)); those are ignored instead of written to the table.
+        foreach (self::EDITABLE as $key) {
+            $value = $this->form[$key] ?? null;
             $old = $key === 'vat_registered' ? Setting::bool($key) : Setting::get($key);
             if ((string) $old !== (string) $value) {
                 $changed[$key] = ['old' => $old, 'new' => $value];

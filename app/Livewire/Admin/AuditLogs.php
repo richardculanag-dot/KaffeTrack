@@ -56,6 +56,9 @@ class AuditLogs extends Component
 
     public function render()
     {
+        $this->from = clean_date($this->from) ?? today()->subDays(6)->toDateString();
+        $this->to = clean_date($this->to) ?? today()->toDateString();
+        $this->user = (string) (clean_id($this->user) ?? '');
         $logs = AuditLog::query()
             ->whereBetween('created_at', [$this->from.' 00:00:00', $this->to.' 23:59:59'])
             ->when($this->module, fn ($q) => $q->where('module', $this->module))

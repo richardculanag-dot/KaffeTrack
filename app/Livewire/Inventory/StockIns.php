@@ -32,6 +32,8 @@ class StockIns extends Component
 
     public function render()
     {
+        $this->supplier = (string) (clean_id($this->supplier) ?? '');
+        $this->month = clean_month($this->month) ?? '';
         $query = StockIn::with(['supplier', 'receiver'])->withCount('batches')
             ->when($this->search, fn ($q) => $q->where(fn ($w) => $w->whereRaw('lower(reference_no) like ?', ['%'.mb_strtolower($this->search).'%'])->orWhereRaw('lower(invoice_number) like ?', ['%'.mb_strtolower($this->search).'%'])))
             ->when($this->supplier, fn ($q) => $q->where('supplier_id', $this->supplier))

@@ -183,6 +183,12 @@ class OrderService
         }
 
         return DB::transaction(function () use ($order, $data, $by, $at, $shift, $method, $total, $tendered, $change) {
+            // Re-check under a row lock: two cashiers (or a double click) must not pay the same order twice.
+            $locked = Order::lockForUpdate()->findOrFail($order->id);
+            if ($locked->isPaid() || in_array($locked->status, [Order::STATUS_CANCELLED, Order::STATUS_REFUNDED])) {
+                throw new BusinessRuleException("Order {$order->order_number} was just updated by someone else. Refresh and check it.");
+            }
+
             $payment = $order->payments()->create([
                 'received_by' => $by->id,
                 'cash_shift_id' => $shift->id,
@@ -277,7 +283,17 @@ class OrderService
             throw new BusinessRuleException('Open the cash drawer before giving a cash refund.');
         }
 
+        if ((float) $order->total_amount <= 0) {
+            throw new BusinessRuleException('This order was free (₱0.00), so there is nothing to refund.');
+        }
+
         return DB::transaction(function () use ($order, $reason, $approver, $by, $at, $payment, $shift) {
+            // Re-check under a row lock so the same order can never be refunded twice.
+            $locked = Order::lockForUpdate()->findOrFail($order->id);
+            if (! $locked->canRefund()) {
+                throw new BusinessRuleException('This order has already been refunded.');
+            }
+
             $refund = Refund::create([
                 'order_id' => $order->id,
                 'payment_id' => $payment?->id,

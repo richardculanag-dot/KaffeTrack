@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\NormalisesName;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -11,7 +12,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class ProductVariant extends Model
 {
-    use SoftDeletes;
+    use NormalisesName, SoftDeletes;
 
     protected $fillable = ['product_id', 'name', 'price', 'is_default', 'sort_order'];
 

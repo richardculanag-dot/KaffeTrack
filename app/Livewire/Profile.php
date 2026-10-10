@@ -3,9 +3,10 @@
 namespace App\Livewire;
 
 use App\Livewire\Concerns\WithToasts;
+use App\Rules\DisplayName;
+use App\Rules\UniqueName;
 use App\Services\AuditLogger;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -38,9 +39,9 @@ class Profile extends Component
     {
         $this->email = mb_strtolower(trim($this->email));
         $data = $this->validate([
-            'name' => ['required', 'string', 'max:150'],
-            'email' => ['required', 'email', 'max:255', Rule::unique('users', 'email')->ignore(auth()->id())->whereNull('deleted_at')],
-            'phone' => ['nullable', 'string', 'max:30'],
+            'name' => ['required', 'string', 'max:150', new DisplayName('“Bea Ramirez”')],
+            'email' => ['required', 'email', 'max:255', new UniqueName('users', 'email', auth()->id())],
+            'phone' => ['nullable', 'string', 'max:30', 'regex:/^[0-9+()\-\s]{7,30}$/'],
         ]);
         auth()->user()->update($data + ['phone' => $this->phone ?: null]);
         $this->toast('Profile updated.');

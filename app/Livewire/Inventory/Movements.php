@@ -56,6 +56,11 @@ class Movements extends Component
 
     public function render()
     {
+        $this->from = clean_date($this->from) ?? today()->subDays(13)->toDateString();
+        $this->to = clean_date($this->to) ?? today()->toDateString();
+        $this->item = (string) (clean_id($this->item) ?? '');
+        $this->user = (string) (clean_id($this->user) ?? '');
+        $this->tab = in_array($this->tab, ['ledger', 'usage'], true) ? $this->tab : 'ledger';
         $range = [$this->from.' 00:00:00', $this->to.' 23:59:59'];
 
         $movements = StockMovement::with(['item', 'user', 'batch'])

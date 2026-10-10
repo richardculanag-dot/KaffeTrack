@@ -81,8 +81,8 @@
                 </div>
             @endunless
             @if (($form['role'] ?? '') === 'manager')
-                <x-input label="Refund approval PIN" name="form.pin" type="password" inputmode="numeric" maxlength="6" wire:model.blur="form.pin" :required="! $editingId" autocomplete="off"
-                         :help="$editingId ? 'Leave blank to keep the current PIN.' : '4–6 digits. Entered at the POS to approve refunds.'" class="sm:col-span-2" />
+                <x-input label="Refund approval PIN" name="form.pin" type="password" inputmode="numeric" maxlength="6" wire:model.blur="form.pin" :required="$pinRequired" autocomplete="off"
+                         :help="$pinRequired ? '4–6 digits. Entered at the POS to approve refunds.' : 'Leave blank to keep the current PIN.'" class="sm:col-span-2" />
             @endif
             <div class="sm:col-span-2"><x-toggle label="Active" description="Inactive users cannot sign in." wire:model="form.is_active" /></div>
         </form>

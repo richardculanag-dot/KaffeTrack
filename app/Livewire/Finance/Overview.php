@@ -7,9 +7,12 @@ use App\Models\Expense;
 use App\Models\ExpenseCategory;
 use App\Models\Income;
 use App\Models\Supplier;
+use App\Rules\DisplayName;
+use App\Rules\UniqueName;
 use App\Services\Analytics;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -37,10 +40,12 @@ class Overview extends Component
     public string $search = '';
 
     public bool $showExpense = false;
+    #[Locked] // set only by the server (open/edit methods), never by the browser
     public ?int $expenseId = null;
     public array $expense = [];
 
     public bool $showIncome = false;
+    #[Locked] // set only by the server (open/edit methods), never by the browser
     public ?int $incomeId = null;
     public array $income = [];
 
@@ -61,6 +66,8 @@ class Overview extends Component
 
     private function range(): array
     {
+        $this->month = clean_month($this->month) ?? today()->format('Y-m');
+        $this->expenseCategory = (string) (clean_id($this->expenseCategory) ?? '');
         $start = Carbon::createFromFormat('Y-m-d', $this->month.'-01')->startOfMonth();
         $end = $start->copy()->endOfMonth();
 
@@ -101,7 +108,7 @@ class Overview extends Component
             'expense.expense_category_id' => ['required', Rule::exists('expense_categories', 'id')->whereNull('deleted_at')],
             'expense.description' => ['required', 'string', 'max:255'],
             'expense.amount' => ['required', 'numeric', 'min:0.01', 'max:10000000'],
-            'expense.expense_date' => ['required', 'date', 'before_or_equal:today'],
+            'expense.expense_date' => ['required', 'date', 'before_or_equal:today', 'after_or_equal:2020-01-01'],
             'expense.payment_method' => ['required', Rule::in(array_keys(Expense::PAYMENT_METHODS))],
             'expense.supplier_id' => ['nullable', Rule::exists('suppliers', 'id')],
             'expense.reference_number' => ['nullable', 'string', 'max:100'],
@@ -136,7 +143,7 @@ class Overview extends Component
 
     public function addCategory(): void
     {
-        $this->validate(['newCategory' => ['required', 'string', 'max:100', Rule::unique('expense_categories', 'name')->whereNull('deleted_at')]], [], ['newCategory' => 'category name']);
+        $this->validate(['newCategory' => ['required', 'string', 'max:100', new DisplayName('“Utilities”'), new UniqueName('expense_categories')]], [], ['newCategory' => 'category name']);
         ExpenseCategory::create(['name' => trim($this->newCategory), 'is_system' => false]);
         $this->toast("Expense category “{$this->newCategory}” added.");
         $this->newCategory = '';
@@ -183,7 +190,7 @@ class Overview extends Component
         $data = $this->validate([
             'income.source' => ['required', 'string', 'max:150'],
             'income.amount' => ['required', 'numeric', 'min:0.01', 'max:10000000'],
-            'income.income_date' => ['required', 'date', 'before_or_equal:today'],
+            'income.income_date' => ['required', 'date', 'before_or_equal:today', 'after_or_equal:2020-01-01'],
             'income.payment_method' => ['required', Rule::in(array_keys(Expense::PAYMENT_METHODS))],
             'income.reference_number' => ['nullable', 'string', 'max:100'],
             'income.notes' => ['nullable', 'string', 'max:1000'],

@@ -5,7 +5,10 @@ namespace App\Livewire\Products;
 use App\Livewire\Concerns\WithToasts;
 use App\Models\Discount;
 use App\Models\Order;
+use App\Rules\DisplayName;
+use App\Rules\UniqueName;
 use Illuminate\Validation\Rule;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
@@ -15,6 +18,7 @@ class Discounts extends Component
     use WithToasts;
 
     public bool $showForm = false;
+    #[Locked] // set only by the server (open/edit methods), never by the browser
     public ?int $editingId = null;
     public array $form = [];
 
@@ -38,7 +42,7 @@ class Discounts extends Component
     public function save(): void
     {
         $data = $this->validate([
-            'form.name' => ['required', 'string', 'max:100', Rule::unique('discounts', 'name')->ignore($this->editingId)->whereNull('deleted_at')],
+            'form.name' => ['required', 'string', 'max:100', new DisplayName('“Senior Citizen”'), new UniqueName('discounts', 'name', $this->editingId)],
             'form.type' => ['required', Rule::in(['percentage', 'fixed'])],
             'form.value' => ['required', 'numeric', 'min:0.01', $this->form['type'] === 'percentage' ? 'max:100' : 'max:100000'],
             'form.is_vat_exempt' => ['boolean'],

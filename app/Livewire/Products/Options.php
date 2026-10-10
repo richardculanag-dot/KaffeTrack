@@ -6,9 +6,12 @@ use App\Livewire\Concerns\WithToasts;
 use App\Models\Addon;
 use App\Models\Category;
 use App\Models\InventoryItem;
-use Illuminate\Support\Facades\DB;
+use App\Rules\DisplayName;
+use App\Rules\UniqueName;
 use App\Services\AuditLogger;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
@@ -20,10 +23,12 @@ class Options extends Component
     public const ICONS = ['coffee' => 'Coffee', 'cup' => 'Iced cup', 'snowflake' => 'Frozen', 'leaf' => 'Tea / leaf', 'cake' => 'Pastry'];
 
     public bool $showCategory = false;
+    #[Locked] // set only by the server (open/edit methods), never by the browser
     public ?int $categoryId = null;
     public array $cat = [];
 
     public bool $showAddon = false;
+    #[Locked] // set only by the server (open/edit methods), never by the browser
     public ?int $addonId = null;
     public array $addon = [];
     /** Inventory effect of the add-on: '' (none) | replace | add. */
@@ -51,7 +56,7 @@ class Options extends Component
     public function saveCategory(): void
     {
         $data = $this->validate([
-            'cat.name' => ['required', 'string', 'max:100', Rule::unique('categories', 'name')->ignore($this->categoryId)->whereNull('deleted_at')],
+            'cat.name' => ['required', 'string', 'max:100', new DisplayName('“Espresso Classics”'), new UniqueName('categories', 'name', $this->categoryId)],
             'cat.description' => ['nullable', 'string', 'max:255'],
             'cat.icon' => ['required', Rule::in(array_keys(self::ICONS))],
             'cat.sort_order' => ['required', 'integer', 'min:0', 'max:999'],
@@ -123,11 +128,11 @@ class Options extends Component
     public function saveAddon(): void
     {
         $data = $this->validate([
-            'addon.name' => ['required', 'string', 'max:100', Rule::unique('addons', 'name')->ignore($this->addonId)->whereNull('deleted_at')],
+            'addon.name' => ['required', 'string', 'max:100', new DisplayName('“Extra espresso shot”'), new UniqueName('addons', 'name', $this->addonId)],
             'addon.price' => ['required', 'numeric', 'min:0', 'max:10000'],
             'addon.is_active' => ['boolean'],
             'rule.action' => ['nullable', Rule::in(['', 'add', 'replace'])],
-            'rule.role' => ['exclude_if:rule.action,', 'required', 'string', 'max:30'],
+            'rule.role' => ['exclude_if:rule.action,', 'required', 'string', 'max:30', new DisplayName('“milk”')],
             'rule.inventory_item_id' => ['exclude_if:rule.action,', 'required', Rule::exists('inventory_items', 'id')->whereNull('deleted_at')],
             'rule.servings' => ['exclude_if:rule.action,', 'required', 'numeric', 'min:0.25', 'max:10'],
         ], [

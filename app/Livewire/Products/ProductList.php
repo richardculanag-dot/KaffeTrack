@@ -8,10 +8,13 @@ use App\Models\Category;
 use App\Models\InventoryItem;
 use App\Models\OrderItem;
 use App\Models\Product;
+use App\Rules\DisplayName;
+use App\Rules\UniqueName;
 use App\Services\AuditLogger;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -38,6 +41,7 @@ class ProductList extends Component
     public string $availability = '';
 
     public bool $showForm = false;
+    #[Locked] // set only by the server (open/edit methods), never by the browser
     public ?int $editingId = null;
     public array $form = [];
     public array $variants = [];
@@ -134,13 +138,13 @@ class ProductList extends Component
     public function save(): void
     {
         $this->validate([
-            'form.name' => ['required', 'string', 'max:150', Rule::unique('products', 'name')->ignore($this->editingId)->whereNull('deleted_at')],
-            'form.code' => ['nullable', 'string', 'max:30', Rule::unique('products', 'code')->ignore($this->editingId)->whereNull('deleted_at')],
+            'form.name' => ['required', 'string', 'max:150', new DisplayName('“Café Latte” or “7-Up Float”'), new UniqueName('products', 'name', $this->editingId)],
+            'form.code' => ['nullable', 'string', 'max:30', 'regex:/^[A-Za-z0-9][A-Za-z0-9\-_.]*$/', new UniqueName('products', 'code', $this->editingId)],
             'form.category_id' => ['required', Rule::exists('categories', 'id')->whereNull('deleted_at')],
             'form.description' => ['nullable', 'string', 'max:500'],
             'form.is_available' => ['boolean'],
             'variants' => ['required', 'array', 'min:1', 'max:8'],
-            'variants.*.name' => ['required', 'string', 'max:60', 'distinct:ignore_case'],
+            'variants.*.name' => ['required', 'string', 'max:60', 'distinct:ignore_case', new DisplayName('“12 oz Hot”, “18 oz” or “Regular”')],
             'variants.*.price' => ['required', 'numeric', 'min:0', 'max:100000'],
             'addonIds' => ['array'],
             'addonIds.*' => [Rule::exists('addons', 'id')->whereNull('deleted_at')],
@@ -165,7 +169,7 @@ class ProductList extends Component
 
         DB::transaction(function () {
             $data = [
-                'name' => trim($this->form['name']),
+                'name' => DisplayName::clean($this->form['name']),
                 'code' => filled($this->form['code']) ? strtoupper(trim($this->form['code'])) : null,
                 'category_id' => $this->form['category_id'],
                 'description' => $this->form['description'] ?: null,
@@ -188,7 +192,7 @@ class ProductList extends Component
             // Sync sizes: update kept rows, add new ones, archive removed ones (old orders keep their snapshot).
             $keep = [];
             foreach (array_values($this->variants) as $i => $v) {
-                $attrs = ['name' => trim($v['name']), 'price' => round((float) $v['price'], 2), 'is_default' => (bool) $v['is_default'], 'sort_order' => $i];
+                $attrs = ['name' => DisplayName::clean($v['name']), 'price' => round((float) $v['price'], 2), 'is_default' => (bool) $v['is_default'], 'sort_order' => $i];
                 $row = $v['id'] ? $product->variants()->whereKey($v['id'])->first() : null;
                 $row ? $row->update($attrs) : $row = $product->variants()->create($attrs);
                 $keep[] = $row->id;
@@ -213,7 +217,7 @@ class ProductList extends Component
                 AuditLogger::log('products', 'ingredients_updated', "Updated inventory items used by \"{$product->name}\"", $product, $before ?: null, $after ?: null);
             }
 
-            $newPrices = collect($this->variants)->mapWithKeys(fn ($v) => [trim($v['name']) => round((float) $v['price'], 2)])->all();
+            $newPrices = collect($this->variants)->mapWithKeys(fn ($v) => [DisplayName::clean($v['name']) => round((float) $v['price'], 2)])->all();
             if ($this->editingId && $oldPrices != $newPrices) {
                 AuditLogger::log('products', 'updated', "Updated sizes & prices of \"{$product->name}\"", $product, $oldPrices, $newPrices);
             }
@@ -247,6 +251,9 @@ class ProductList extends Component
 
     public function render()
     {
+        $this->category = (string) (clean_id($this->category) ?? '');
+        $this->availability = in_array($this->availability, ['', '0', '1'], true) ? $this->availability : '';
+
         $sold = OrderItem::query()
             ->join('orders', 'orders.id', '=', 'order_items.order_id')
             ->where('orders.payment_status', 'paid')
