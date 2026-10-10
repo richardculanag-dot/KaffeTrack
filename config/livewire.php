@@ -5,6 +5,8 @@
  */
 return [
     'layout' => 'components.layouts.app',
+    // Same setting under its Livewire 4 name, so a v4 install doesn't look for a missing "layouts::app".
+    'component_layout' => 'components.layouts.app',
 
     'navigate' => [
         'show_progress_bar' => true,

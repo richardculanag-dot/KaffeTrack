@@ -38,6 +38,12 @@ class Product extends Model
         return $this->belongsToMany(Addon::class);
     }
 
+    /** Inventory items this product uses (Sales ↔ Inventory link). */
+    public function ingredients(): HasMany
+    {
+        return $this->hasMany(ProductIngredient::class)->orderBy('id');
+    }
+
     public function scopeAvailable(Builder $q): Builder
     {
         return $q->where('is_available', true);

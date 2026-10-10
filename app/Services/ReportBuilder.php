@@ -124,7 +124,40 @@ class ReportBuilder
             'deliveries' => StockIn::with('supplier')->whereBetween('received_date', $this->dates())->orderBy('received_date')->get(),
             'writeoffs' => StockMovement::with(['item', 'user'])->whereIn('type', ['waste', 'expired', 'adjustment_out', 'adjustment_in'])
                 ->whereBetween('created_at', [$this->from, $this->to])->latest('created_at')->get(),
+            'servings' => $this->servingsSummary(),
         ];
+    }
+
+    /**
+     * Sales ↔ Inventory: drinks served per opened unit for tracked items in the period.
+     * Estimates only — counted when orders are marked ready, never a measurement.
+     */
+    private function servingsSummary(): \Illuminate\Support\Collection
+    {
+        return InventoryItem::where('tracks_servings', true)->orderBy('name')->get()->map(function ($item) {
+            $closed = $item->usages()->where('status', 'depleted')->whereBetween('closed_at', [$this->from, $this->to])
+                ->where('exclude_from_history', false)->where('servings_used', '>', 0)->get();
+            $opened = StockMovement::where('inventory_item_id', $item->id)->where('type', 'stock_out')
+                ->whereBetween('created_at', [$this->from, $this->to]);
+            $drinks = (float) \App\Models\OrderItemIngredient::where('inventory_item_id', $item->id)
+                ->whereBetween('counted_at', [$this->from, $this->to])->sum('servings');
+            $unrecorded = (float) \App\Models\OrderItemIngredient::where('inventory_item_id', $item->id)->whereNull('item_usage_id')
+                ->whereBetween('counted_at', [$this->from, $this->to])->sum('servings');
+            $avgDrinks = $closed->count() ? $closed->avg('servings_used') : null;
+            $avgCost = (float) (clone $opened)->avg('unit_cost');
+
+            return [
+                'item' => $item,
+                'opened' => (clone $opened)->count(),
+                'drinks' => $drinks,
+                'unrecorded' => $unrecorded,
+                'used_up' => $closed->count(),
+                'avg_drinks' => $avgDrinks,
+                'cost_per_drink' => $avgDrinks && $avgCost ? round($avgCost / $avgDrinks, 2) : null,
+                'alerts' => $item->usages()->whereBetween('alerted_at', [$this->from, $this->to])->count(),
+                'flagged' => $item->usages()->whereBetween('flagged_at', [$this->from, $this->to])->count(),
+            ];
+        })->filter(fn ($r) => $r['opened'] || $r['drinks'] || $r['used_up'])->values();
     }
 
     private function financial(): array

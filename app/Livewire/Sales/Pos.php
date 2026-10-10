@@ -58,7 +58,8 @@ class Pos extends Component
                 'cart.*.notes' => ['nullable', 'string', 'max:120'],
                 'meta.order_type' => ['required', Rule::in(array_keys(Order::TYPES))],
                 'meta.customer_name' => ['nullable', 'string', 'max:100'],
-                'meta.table_number' => ['nullable', 'string', 'max:10'],
+                // Only checked for dine-in; takeout orders never store a table.
+                'meta.table_number' => ['exclude_unless:meta.order_type,dine_in', 'nullable', 'integer', 'between:1,'.Order::tableCount()],
                 'meta.notes' => ['nullable', 'string', 'max:255'],
                 'meta.discount_id' => ['nullable', 'integer'],
                 'meta.discount_id_number' => ['nullable', 'string', 'max:50'],
@@ -70,6 +71,8 @@ class Pos extends Component
             ], [
                 'cart.required' => 'The cart is empty. Add at least one item.',
                 'meta.order_type.required' => 'Choose dine-in or takeout.',
+                'meta.table_number.integer' => 'Choose a table from the list.',
+                'meta.table_number.between' => 'Choose a table from 1 to '.Order::tableCount().'.',
             ])->validate();
 
             $order = $orders->place($data['cart'], $data['meta'], $data['payment'] ?? null);
@@ -97,7 +100,7 @@ class Pos extends Component
     public function render()
     {
         $categories = Category::where('is_active', true)->orderBy('sort_order')->orderBy('name')
-            ->with(['products' => fn ($q) => $q->available()->orderBy('name')->with(['variants', 'addons' => fn ($a) => $a->where('is_active', true)])])
+            ->with(['products' => fn ($q) => $q->available()->orderBy('name')->with(['variants', 'addons' => fn ($a) => $a->where('is_active', true), 'ingredients.item.currentUsage'])])
             ->get()
             ->filter(fn ($c) => $c->products->isNotEmpty())
             ->values();
@@ -113,6 +116,12 @@ class Pos extends Component
                 'image' => $p->imageUrl(),
                 'variants' => $p->variants->map(fn ($v) => ['id' => $v->id, 'name' => $v->name, 'price' => (float) $v->price])->values(),
                 'addons' => $p->addons->map(fn ($a) => ['id' => $a->id, 'name' => $a->name, 'price' => (float) $a->price])->values(),
+                // Soft warning only (never blocks): a linked item shows nothing in storage and nothing open.
+                // An add-on may substitute it (e.g. oat milk), and the records can be behind reality.
+                'stock_note' => ($out = $p->ingredients->filter(fn ($i) => $i->item && $i->item->quantity_on_hand <= 0 && ! $i->item->currentUsage)
+                    ->map(fn ($i) => $i->item->name)->unique()->values())->isNotEmpty()
+                    ? $out->join(', ').' shows none left — check before confirming'
+                    : null,
             ])->values(),
         ]);
 

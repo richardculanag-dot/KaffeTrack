@@ -39,7 +39,12 @@
                 <tbody>
                     @forelse ($addons as $a)
                         <tr wire:key="ad-{{ $a->id }}">
-                            <td class="font-semibold">{{ $a->name }}</td>
+                            <td>
+                                <p class="font-semibold">{{ $a->name }}</p>
+                                @foreach ($a->ingredientRules as $r)
+                                    <p class="text-xs text-sage-500">{{ $r->action === 'replace' ? 'Replaces the '.$r->role.' with '.$r->item->name : 'Adds '.$r->item->name.($r->servings != 1 ? ' ×'.(float) $r->servings : '') }}</p>
+                                @endforeach
+                            </td>
                             <td class="text-right tabular">+{{ peso($a->price) }}</td>
                             <td class="text-sage-600">{{ $a->products_count }} product(s)</td>
                             <td><x-status-badge :status="$a->is_active ? 'active' : 'inactive'" /></td>
@@ -84,11 +89,32 @@
         </x-slot:footer>
     </x-modal>
 
-    <x-modal wire:model="showAddon" :title="$addonId ? 'Edit add-on' : 'Add add-on'" size="sm" icon="plus">
+    <x-modal wire:model="showAddon" :title="$addonId ? 'Edit add-on' : 'Add add-on'" size="md" icon="plus">
         <form id="addon-form" wire:submit="saveAddon" class="space-y-4">
             <x-input label="Name" name="addon.name" wire:model.blur="addon.name" required placeholder="e.g. Extra espresso shot" />
             <x-input label="Price" name="addon.price" type="number" step="0.01" min="0" prefix="₱" wire:model.blur="addon.price" required />
             <x-toggle label="Active" wire:model="addon.is_active" />
+
+            <fieldset class="space-y-3 rounded-xl border border-sage-200 p-4">
+                <legend class="px-1 text-sm font-semibold">Effect on inventory <span class="font-normal text-sage-400">(optional)</span></legend>
+                <x-select label="This add-on…" name="rule.action" wire:model.live="rule.action"
+                          :options="['replace' => 'Replaces an item (e.g. oat milk instead of milk)', 'add' => 'Adds an item (e.g. an extra shot uses more beans)']" placeholder="Doesn't affect inventory" />
+                @if (filled($rule['action'] ?? ''))
+                    <div class="grid gap-3 sm:grid-cols-2">
+                        <x-input label="{{ $rule['action'] === 'replace' ? 'Role it replaces' : 'Role name' }}" name="rule.role" wire:model.blur="rule.role" list="addon-roles" required
+                                 placeholder="{{ $rule['action'] === 'replace' ? 'e.g. milk' : 'e.g. extra shot' }}"
+                                 help="{{ $rule['action'] === 'replace' ? 'Same name as on the product, e.g. milk.' : 'A short label for this extra.' }}" />
+                        <x-select label="{{ $rule['action'] === 'replace' ? 'Use this item instead' : 'Item it adds' }}" name="rule.inventory_item_id" wire:model="rule.inventory_item_id" required
+                                  :options="$inventoryItems->mapWithKeys(fn ($it) => [$it->id => $it->name.' — '.$it->unit])" placeholder="Choose an item" />
+                        @if ($rule['action'] === 'add')
+                            <x-input label="Counts as" name="rule.servings" type="number" step="0.25" min="0.25" max="10" suffix="serving(s)" wire:model.blur="rule.servings" required class="sm:col-span-2 sm:max-w-48" />
+                        @endif
+                    </div>
+                    <datalist id="addon-roles">
+                        @foreach (\App\Models\ProductIngredient::ROLES as $role)<option value="{{ $role }}"></option>@endforeach
+                    </datalist>
+                @endif
+            </fieldset>
         </form>
         <x-slot:footer>
             <button type="button" class="btn-secondary" @click="show = false">Cancel</button>

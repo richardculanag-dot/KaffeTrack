@@ -69,3 +69,23 @@ errors and no browser console errors. At 390 px width no page scrolls horizontal
 
 - Income statement (Sept 2026): gross ₱329,530.00 − ₱6,934.72 = net sales ₱322,595.28; + ₱15,600 other
   income = ₱338,195.28; expenses ₱261,013.00; net income ₱77,182.28 (22.8 %).
+
+## Sales ↔ Inventory integration
+
+| # | Steps | Expected |
+|---|---|---|
+| SI-1 | Products → edit Café Latte | "Uses from inventory" lists espresso → House Blend Beans, milk → Fresh Milk |
+| SI-2 | Add an empty ingredient row → Save | Errors: role and item required; nothing saved |
+| SI-3 | Stock on hand → Fresh Milk → Stock out | Open unit shows "0 drinks served · usually ~N" |
+| SI-4 | Sell Café Latte, mark Ready in the queue | Fresh Milk and Beans open units +1 drink |
+| SI-5 | Sell Café Latte + Oat milk, mark Ready | Oat Milk +1; Fresh Milk unchanged |
+| SI-6 | Sell Americano + Extra shot ×2, mark Ready | Beans +4 (2 drinks × 2 servings) |
+| SI-7 | Keep selling lattes | Toast + bell at the alert % (once), again at 100 % (once); meter turns amber, then red |
+| SI-8 | Click "I checked — still enough" | Threshold alert leaves the bell; 100 % notice still appears later |
+| SI-9 | Mark Fresh Milk depleted, sell a latte, mark Ready | Prompt "No open unit recorded"; *Open it now* opens a carton and counts the drink |
+| SI-10 | Same, choose *Mark ready anyway* | Warning toast; bell shows "drink(s) made today with no open unit recorded" |
+| SI-11 | Cancel an unpaid order before Ready | No drink counted |
+| SI-12 | Refund an order after Ready | Drink stays counted |
+| SI-13 | As manager, unit far past usual (≥150 %) | Bell "Review"; Stock on hand ⋯ → *Review over-usage…* requires a reason; audit log entry; unit left out of the usual count |
+| SI-14 | Reports → Inventory PDF | Section "Drinks served per opened unit (estimate)" |
+

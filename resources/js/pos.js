@@ -8,11 +8,12 @@
  */
 const STORAGE_KEY = 'kaffetrack.pos.cart.v1';
 
-export default (catalog, discounts, vat, providers) => ({
+export default (catalog, discounts, vat, providers, maxTable = 10) => ({
     catalog,
     discounts,
     vat,
     providers,
+    maxTable, // App\Models\Order::tableCount() — number of dine-in tables
 
     activeCategory: catalog[0]?.id ?? null,
     search: '',
@@ -216,9 +217,24 @@ export default (catalog, discounts, vat, providers) => ({
     },
 
     /* ── Checkout ─────────────────────────────────────────── */
+    /**
+     * '' when the table choice is fine (or not needed). Tables are picked from buttons, so this only
+     * catches a stale value restored from a saved cart, e.g. after the number of tables was reduced.
+     */
+    get tableError() {
+        if (this.meta.order_type !== 'dine_in' || this.meta.table_number === '' || this.meta.table_number == null) return '';
+        const n = Number(this.meta.table_number);
+        return Number.isInteger(n) && n >= 1 && n <= this.maxTable ? '' : `Choose a table from 1 to ${this.maxTable}.`;
+    },
+
     validateOrder() {
         if (!this.cart.length) {
             this.$store.toasts.push({ type: 'error', message: 'The cart is empty. Tap a product to add it.' });
+            return false;
+        }
+        if (this.tableError) {
+            this.$store.toasts.push({ type: 'error', message: this.tableError });
+            this.$refs.tableNone?.focus();
             return false;
         }
         if (this.selectedDiscount?.requires_id && !this.meta.discount_id_number.trim()) {
@@ -258,7 +274,8 @@ export default (catalog, discounts, vat, providers) => ({
             meta: {
                 ...this.meta,
                 discount_id: this.meta.discount_id || null,
-                table_number: this.meta.order_type === 'dine_in' ? this.meta.table_number : null,
+                // Sent as a number ("07" → 7); empty or takeout → no table.
+                table_number: this.meta.order_type === 'dine_in' && this.meta.table_number !== '' ? Number(this.meta.table_number) : null,
             },
         };
     },

@@ -33,6 +33,15 @@ class Order extends Model
 
     public const TYPES = ['dine_in' => 'Dine-in', 'takeout' => 'Takeout'];
 
+    /** Upper limit for the "Dine-in tables" setting; more than this would no longer fit as tap buttons. */
+    public const MAX_TABLES = 30;
+
+    /** Number of dine-in tables (Admin → Settings). The POS offers tables 1…N and the server accepts only those. */
+    public static function tableCount(): int
+    {
+        return max(1, min(self::MAX_TABLES, (int) Setting::get('table_count', 10)));
+    }
+
     protected $fillable = [
         'order_number', 'queue_number', 'user_id', 'cash_shift_id', 'order_type', 'customer_name', 'table_number',
         'status', 'payment_status', 'subtotal', 'discount_id', 'discount_name', 'discount_id_number',

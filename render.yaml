@@ -1,0 +1,49 @@
+# Render Blueprint for KaffeTrack — Render → New → Blueprint → pick this repository.
+# Values marked `sync: false` are asked for once when you create the Blueprint.
+services:
+  - type: web
+    name: kaffetrack
+    runtime: docker
+    plan: free
+    region: singapore          # closest Render region to the Philippines and to Supabase ap-south-1
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /up
+    envVars:
+      - key: APP_NAME
+        value: KaffeTrack
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_KEY             # copy the whole value from your local .env, including "base64:"
+        sync: false
+      - key: APP_URL             # e.g. https://kaffetrack.onrender.com (shown after the first deploy)
+        sync: false
+      - key: APP_TIMEZONE
+        value: Asia/Manila
+      - key: LOG_CHANNEL
+        value: stderr            # logs appear in Render → Logs
+      - key: SESSION_DRIVER
+        value: cookie            # survives restarts; the free disk is wiped on every restart
+      - key: SESSION_SECURE_COOKIE
+        value: "true"            # Render is HTTPS-only; never send the session cookie over plain HTTP
+      - key: CACHE_STORE
+        value: file
+      - key: QUEUE_CONNECTION
+        value: sync
+      - key: DB_CONNECTION
+        value: pgsql
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        value: "5432"
+      - key: DB_DATABASE
+        value: postgres
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_SSLMODE
+        value: require
+      - key: RUN_MIGRATIONS
+        value: "true"

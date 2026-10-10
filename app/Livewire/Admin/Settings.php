@@ -3,6 +3,7 @@
 namespace App\Livewire\Admin;
 
 use App\Livewire\Concerns\WithToasts;
+use App\Models\Order;
 use App\Models\Setting;
 use App\Services\AuditLogger;
 use Livewire\Attributes\Title;
@@ -33,8 +34,12 @@ class Settings extends Component
             'form.vat_registered' => ['boolean'],
             'form.vat_rate' => ['required', 'numeric', 'min:0', 'max:30'],
             'form.receipt_footer' => ['nullable', 'string', 'max:200'],
+            'form.table_count' => ['required', 'integer', 'between:1,'.Order::MAX_TABLES],
+            'form.servings_alert_percent' => ['required', 'integer', 'between:10,100'],
         ], ['form.store_tin.regex' => 'Use digits and dashes only.'], [
             'form.store_name' => 'store name', 'form.store_address' => 'address', 'form.vat_rate' => 'VAT rate', 'form.store_tin' => 'TIN',
+            'form.table_count' => 'number of tables',
+            'form.servings_alert_percent' => 'alert level',
         ]);
 
         $changed = [];

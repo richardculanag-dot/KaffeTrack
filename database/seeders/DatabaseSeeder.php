@@ -24,5 +24,8 @@ class DatabaseSeeder extends Seeder
         if (filter_var(env('SEED_DEMO_DATA', true), FILTER_VALIDATE_BOOLEAN)) {
             $this->call(DemoHistorySeeder::class);
         }
+
+        // Demo links between menu and inventory (after history, so past units get demo counts).
+        $this->call(SalesInventoryLinkSeeder::class);
     }
 }

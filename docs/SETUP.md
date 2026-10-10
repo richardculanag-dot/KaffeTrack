@@ -140,6 +140,56 @@ sign in as `manager` → see it all on the Dashboard, Reports and Audit logs.
 5. Make `storage/`, `bootstrap/cache/` and `public/uploads/` writable by the web server.
 6. Run once: `php artisan migrate --force` (not `migrate:fresh`) and `php artisan optimize`.
 
+## Deploying to Render (free, Docker)
+
+You do **not** need Docker on your own computer. Render reads the `Dockerfile` in your repository and
+builds the image on its servers. The files involved are `Dockerfile`, `docker/` (Apache, PHP and
+start-up script), `.dockerignore`, `render.yaml` and `.gitattributes`, all in the project root.
+
+**One-time preparation (local):**
+
+1. Make sure `composer.lock` and `package-lock.json` exist in the project root (they are created by
+   `composer install` / `npm install`). The image build fails without them.
+2. Migrate and seed **Supabase from your own computer**, with your local `.env` pointing at Supabase:
+   `php artisan migrate:fresh --seed`. The live server never seeds: Faker is a development-only package
+   and is not installed in the image.
+3. Push the project to a GitHub repository. `.gitignore` already keeps `.env`, `vendor/` and
+   `node_modules/` out. Check on GitHub that `.env` is **not** there before continuing.
+
+**On Render:**
+
+4. Sign in at render.com with GitHub → **New → Blueprint** → choose the repository. Render reads
+   `render.yaml` and proposes one free web service called `kaffetrack` in Singapore.
+5. It asks for the five secret values:
+
+   | Key | Value |
+   | --- | --- |
+   | `APP_KEY` | The whole `APP_KEY` line value from your local `.env`, including `base64:` |
+   | `APP_URL` | `https://kaffetrack.onrender.com` (adjust after step 7 if Render gives a different name) |
+   | `DB_HOST` | `aws-0-ap-south-1.pooler.supabase.com` (no `http://`) |
+   | `DB_USERNAME` | `postgres.<your-project-ref>`, same as local |
+   | `DB_PASSWORD` | Your Supabase database password |
+
+6. Click **Apply**. The first build takes about 5–10 minutes (Composer, then Vite, then PHP). On every
+   start the container caches config/routes/views and runs `php artisan migrate --force`, which only
+   applies **new** migrations and never deletes data.
+7. When the status is **Live**, open the URL at the top of the service page. If it differs from what you
+   entered, fix `APP_URL` under **Environment** and save. Render redeploys automatically.
+
+**Updating:** every `git push` to the connected branch rebuilds and redeploys.
+
+**Free-plan behaviour to expect:**
+
+- The service sleeps after 15 minutes without visits; the next visit takes about a minute to wake it.
+  Open the site a few minutes before a demo or defense.
+- The disk is wiped on every restart or deploy, so **product photos uploaded on the live site
+  disappear**. Data in Supabase is unaffected. Sessions are stored in cookies for the same reason.
+- Logs: service page → **Logs**. A failed start prints the reason there (most often a wrong
+  `DB_*` value or a missing `APP_KEY`).
+
+**Never** run `migrate:fresh` or `db:seed` against Supabase once real data exists: both wipe or
+duplicate records.
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -151,6 +201,10 @@ sign in as `manager` → see it all on the Dashboard, Reports and Audit logs.
 | `Call to undefined function peso()` | Step 3 was skipped: add the `files` entry and run `composer dump-autoload` |
 | PDF shows boxes instead of ₱ | Keep the default DejaVu Sans font in `resources/views/reports/pdf.blade.php` |
 | Product photo upload fails on the host | Make `public/uploads/` writable |
+| Render build: `composer.lock` / `package-lock.json` not found | Commit both lock files and push again |
+| Render: "Exited with status 1" right after start | Open Logs; usually `APP_KEY` missing or a wrong `DB_*` value |
+| Render: links, receipts or PDFs point to `localhost` | Set `APP_URL` to the exact `https://…onrender.com` address |
+| Render: product photos vanished | Expected on the free plan (disk resets on restart); re-upload or skip photos |
 
 ## Testing safely
 

@@ -39,6 +39,9 @@
                                     <div>
                                         <p class="font-semibold">{{ $product->name }}</p>
                                         <p class="text-xs text-sage-500">{{ $product->code ?: 'No code' }}{{ $product->addons_count ? ' · '.$product->addons_count.' add-on(s)' : '' }}</p>
+                                        @if ($product->ingredients->isNotEmpty())
+                                            <p class="text-xs text-sage-500">Uses {{ $product->ingredients->map(fn ($i) => $i->item->name)->join(', ') }}</p>
+                                        @endif
                                     </div>
                                 </div>
                             </td>
@@ -111,6 +114,28 @@
                         <p class="text-xs text-sage-500">The ticked size is pre-selected at the POS.</p>
                     </div>
                     @error('variants')<p class="field-message">{{ $message }}</p>@enderror
+                </fieldset>
+
+                <fieldset>
+                    <legend class="field-label">Uses from inventory <span class="font-normal text-sage-400">(optional)</span></legend>
+                    <p class="mb-2 text-xs text-sage-500">Which items this drink is made from — no amounts. Each sale counts as one drink served from that item's open unit, so the system can warn before it runs out.</p>
+                    <datalist id="ingredient-roles">
+                        @foreach (\App\Models\ProductIngredient::ROLES as $role)<option value="{{ $role }}"></option>@endforeach
+                    </datalist>
+                    <div class="space-y-2">
+                        @foreach ($ingredients as $i => $row)
+                            <div wire:key="ing-{{ $i }}" class="flex items-start gap-2">
+                                <x-input name="ingredients.{{ $i }}.role" wire:model.blur="ingredients.{{ $i }}.role" list="ingredient-roles" placeholder="Role, e.g. milk" aria-label="Role" class="w-32" />
+                                <x-select name="ingredients.{{ $i }}.inventory_item_id" wire:model="ingredients.{{ $i }}.inventory_item_id" :options="$inventoryItems->mapWithKeys(fn ($it) => [$it->id => $it->name.' — '.$it->unit])" placeholder="Choose an item" aria-label="Inventory item" class="flex-1" />
+                                <x-input name="ingredients.{{ $i }}.servings" type="number" step="0.25" min="0.25" max="10" wire:model.blur="ingredients.{{ $i }}.servings" aria-label="Counts as servings" title="Counts as this many servings per drink (usually 1)" class="w-20" />
+                                <button type="button" class="btn-icon mt-1 hover:text-danger-700" wire:click="removeIngredient({{ $i }})" aria-label="Remove item"><x-icon name="trash" class="size-4" /></button>
+                            </div>
+                        @endforeach
+                    </div>
+                    <div class="mt-2 flex items-center justify-between">
+                        <button type="button" class="btn-ghost btn-sm" wire:click="addIngredient"><x-icon name="plus" class="size-4" /> Add an item</button>
+                        @if ($ingredients)<p class="text-xs text-sage-500">The number is servings per drink (usually 1).</p>@endif
+                    </div>
                 </fieldset>
             </div>
 

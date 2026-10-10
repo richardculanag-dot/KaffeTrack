@@ -83,6 +83,10 @@
                                         <span class="text-sm">Open {{ $usage->durationLabel() }}</span>
                                     </div>
                                     <p class="text-xs text-sage-500">by {{ $usage->opener->name }}, {{ $usage->opened_at->format('M j g:i A') }}</p>
+                                    <x-servings-meter :usage="$usage" />
+                                    @if (in_array($usage->servingStage(), ['alert', 'reached']) && ! $usage->acknowledged_at)
+                                        <button type="button" class="mt-1 text-xs font-semibold text-leaf-700 hover:underline" wire:click="acknowledge({{ $usage->id }})">I checked — still enough</button>
+                                    @endif
                                 @else
                                     <span class="text-sm text-sage-500">Nothing open</span>
                                 @endif
@@ -120,6 +124,12 @@
                                                 <button type="button" class="block w-full px-4 py-2.5 text-left hover:bg-sage-50"
                                                         @click="open = false; $confirm({ title: @js('Discard the open '.$item->unit.'?'), message: 'Use this when an opened unit spoiled or spilled before it was used up.', confirmText: 'Discard', tone: 'warn', input: { label: 'Reason', placeholder: 'e.g. milk went sour', required: true } }, (r) => $wire.discard({{ $usage->id }}, r))">
                                                     Discard open unit…
+                                                </button>
+                                            @endif
+                                            @if ($isManager && $usage && $usage->flagged_at && ! $usage->resolved_at)
+                                                <button type="button" class="block w-full px-4 py-2.5 text-left font-semibold text-danger-700 hover:bg-danger-50"
+                                                        @click="open = false; $confirm({ title: @js('Review '.$item->name.' over-usage'), message: @js(\App\Models\ItemUsage::servingsLabel($usage->servings_used).' drinks were counted against this '.$item->unit.' — usually about '.(int) round($usage->expected_servings).'. Most often a new unit was opened without recording the stock-out. Check the storage count, then record what happened. This unit will be left out of the usual count.'), confirmText: 'Save review', input: { label: 'What happened?', placeholder: 'e.g. second carton opened without stock-out', required: true } }, (r) => $wire.resolveFlag({{ $usage->id }}, r))">
+                                                    Review over-usage…
                                                 </button>
                                             @endif
                                             @if ($isManager)
@@ -183,6 +193,22 @@
                         </div>
                     </div>
 
+                    @if ($history->tracks_servings || ($usual['sample'] ?? 0) > 0)
+                        <div class="rounded-xl border border-sage-200 p-3.5 text-sm">
+                            <p class="font-semibold">Usually serves {{ $usual['value'] ? '~'.(int) round($usual['value']).' drinks per '.$history->unit : '— (no estimate yet)' }}</p>
+                            <p class="mt-0.5 text-xs text-sage-500">
+                                @if ($usual['source'] === 'history')
+                                    Average of the last {{ $usual['sample'] }} units used up. Updates as more units are recorded.
+                                @elseif ($usual['value'])
+                                    Starting estimate set by a manager — replaced by the real average after {{ \App\Services\ServingTracker::MIN_HISTORY }} units are used up ({{ $usual['sample'] }} so far).
+                                @else
+                                    Set a starting estimate in Edit item, or wait until {{ \App\Services\ServingTracker::MIN_HISTORY }} units have been used up.
+                                @endif
+                                Alerts at {{ $history->alertPercent() }}%.@unless ($history->tracks_servings) Alerts are off for this item.@endunless
+                            </p>
+                        </div>
+                    @endif
+
                     <div>
                         <h3 class="mb-2 text-sm font-semibold text-sage-600">Batches in storage (used first-expired, first-out)</h3>
                         <ul class="divide-y divide-sage-100 rounded-xl border border-sage-200">
@@ -213,6 +239,12 @@
                                     <div>
                                         <p>Opened by {{ $u->opener->name }} · {{ $u->opened_at->format('M j, g:i A') }}</p>
                                         @if ($u->closed_at)<p class="text-xs text-sage-500">{{ ucfirst($u->status) }} by {{ $u->closer?->name }} after {{ $u->durationLabel() }}{{ $u->notes ? ' — '.$u->notes : '' }}</p>@endif
+                                        @if ($u->servings_used > 0)
+                                            <p class="text-xs text-sage-500">{{ \App\Models\ItemUsage::servingsLabel($u->servings_used) }} drink(s) served{{ $u->expected_servings ? ' · usually ~'.(int) round($u->expected_servings) : '' }}@if ($u->exclude_from_history && $u->status !== 'in_use') · not in the usual count @endif</p>
+                                        @endif
+                                        @if ($u->flagged_at)
+                                            <p class="text-xs font-semibold {{ $u->resolved_at ? 'text-sage-600' : 'text-danger-700' }}">{{ $u->resolved_at ? 'Reviewed by '.$u->resolver?->name.': '.$u->resolution_note : 'Over-usage — waiting for manager review' }}</p>
+                                        @endif
                                     </div>
                                     <x-status-badge :status="$u->status" />
                                 </li>
@@ -245,6 +277,17 @@
                 <div class="space-y-2 sm:col-span-2">
                     <x-toggle label="Track expiry dates" description="Require an expiry date on every delivery and warn before it expires." wire:model="form.track_expiry" />
                     <x-toggle label="Active" description="Inactive items stay visible but can't be stocked out." wire:model="form.is_active" />
+                </div>
+                <div class="space-y-3 rounded-xl border border-sage-200 p-4 sm:col-span-2">
+                    <x-toggle label="Estimate drinks served per open unit" description="Counts drinks made from the open unit (products linked to this item) and warns before it usually runs out. An estimate only — staff still check the container." wire:model.live="form.tracks_servings" />
+                    @if ($form['tracks_servings'] ?? false)
+                        <div class="grid gap-4 sm:grid-cols-2">
+                            <x-input label="Starting estimate" name="form.expected_servings" type="number" min="1" step="1" suffix="drinks" wire:model.blur="form.expected_servings" optional
+                                     help="Drinks one unit usually makes. Replaced by the real average after {{ \App\Services\ServingTracker::MIN_HISTORY }} units are used up." />
+                            <x-input label="Alert at" name="form.servings_alert_percent" type="number" min="10" max="100" step="5" suffix="%" wire:model.blur="form.servings_alert_percent" optional
+                                     placeholder="{{ \App\Models\Setting::get('servings_alert_percent', 80) }}" help="Leave empty to use the default in Settings." />
+                        </div>
+                    @endif
                 </div>
             </form>
             <x-slot:footer>

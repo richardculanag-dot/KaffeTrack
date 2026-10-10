@@ -21,6 +21,14 @@ use Illuminate\Support\Facades\DB;
  */
 class OrderService
 {
+    /** Notices from the last markReady() (inventory estimate alerts) for the screen to show. */
+    public array $notices = [];
+
+    public function __construct(
+        private RecipeResolver $recipes = new RecipeResolver,
+        private ServingTracker $servings = new ServingTracker,
+    ) {}
+
     /**
      * Create an order from the POS cart.
      *
@@ -44,7 +52,7 @@ class OrderService
 
         return DB::transaction(function () use ($cart, $meta, $payment, $cashier, $at, $shift) {
             // Prices are always re-read from the database — the browser is never trusted.
-            $variants = ProductVariant::with(['product.addons'])
+            $variants = ProductVariant::with(['product.addons.ingredientRules', 'product.ingredients'])
                 ->whereIn('id', collect($cart)->pluck('variant_id'))
                 ->get()->keyBy('id');
 
@@ -116,6 +124,15 @@ class OrderService
                 foreach ($line['addons'] as $addon) {
                     /** @var Addon $addon */
                     $item->addons()->create(['addon_id' => $addon->id, 'addon_name' => $addon->name, 'price' => $addon->price]);
+                }
+
+                // Sales ↔ Inventory: which items this line uses (counted later, when marked Ready).
+                foreach ($this->recipes->forOneDrink($line['variant']->product, $line['addons']) as $itemId => $servings) {
+                    $item->ingredients()->create([
+                        'inventory_item_id' => $itemId,
+                        'servings' => $servings * $line['qty'],
+                        'created_at' => $at,
+                    ]);
                 }
             }
 
@@ -195,11 +212,18 @@ class OrderService
             throw new BusinessRuleException("Only pending orders can be marked ready.");
         }
         $at ??= now();
-        $order->forceFill(['status' => Order::STATUS_READY, 'ready_at' => $at, 'updated_at' => $at])->save();
-        AuditLogger::log('sales', 'order_ready', "Marked order {$order->order_number} as ready", $order,
-            ['status' => 'pending'], ['status' => 'ready'], $by);
+        $this->notices = [];
 
-        return $order;
+        return DB::transaction(function () use ($order, $by, $at) {
+            $order->forceFill(['status' => Order::STATUS_READY, 'ready_at' => $at, 'updated_at' => $at])->save();
+            AuditLogger::log('sales', 'order_ready', "Marked order {$order->order_number} as ready", $order,
+                ['status' => 'pending'], ['status' => 'ready'], $by);
+
+            // The drink is made now: count it once against the open units it used.
+            $this->notices = $this->servings->countOrder($order, $by, $at);
+
+            return $order;
+        });
     }
 
     public function complete(Order $order, ?User $by = null, ?Carbon $at = null): Order

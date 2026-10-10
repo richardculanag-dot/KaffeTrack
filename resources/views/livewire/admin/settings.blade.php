@@ -13,6 +13,25 @@
     </section>
 
     <section class="panel">
+        <div class="panel-header"><h2 class="panel-title">Dine-in</h2></div>
+        <div class="p-5">
+            <x-input label="Number of tables" name="form.table_count" type="number" min="1" max="{{ \App\Models\Order::MAX_TABLES }}" step="1"
+                     wire:model.blur="form.table_count" required class="max-w-48"
+                     help="The POS shows one button per table (1 to {{ \App\Models\Order::MAX_TABLES }})." />
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-header"><h2 class="panel-title">Inventory estimates</h2></div>
+        <div class="space-y-3 p-5">
+            <x-input label="Alert when an open unit reaches" name="form.servings_alert_percent" type="number" min="10" max="100" step="5" suffix="%"
+                     wire:model.blur="form.servings_alert_percent" required class="max-w-56"
+                     help="Of the drinks one unit usually serves. Items can override this in Stock on hand → Edit item." />
+            <p class="text-sm text-sage-600">Estimates come from counting drinks against the open unit when orders are marked ready. They never change stock quantities, never close a unit and never block a sale — staff confirm by checking the container.</p>
+        </div>
+    </section>
+
+    <section class="panel">
         <div class="panel-header"><h2 class="panel-title">Tax</h2></div>
         <div class="space-y-4 p-5">
             <x-toggle label="VAT-registered" description="Show VATable sales and VAT on receipts, and remove VAT before Senior/PWD discounts." wire:model.live="form.vat_registered" />

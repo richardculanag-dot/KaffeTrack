@@ -62,3 +62,26 @@
         @endforelse
     </tbody>
 </table>
+
+<h2>Drinks served per opened unit (estimate)</h2>
+<table>
+    <thead><tr><th>Item</th><th class="r">Units opened</th><th class="r">Drinks counted</th><th class="r">Units used up</th><th class="r">Avg drinks / unit</th><th class="r">Approx. cost / drink</th><th class="r">Alerts</th><th class="r">Reviews</th></tr></thead>
+    <tbody>
+        @forelse ($servings as $s)
+            <tr>
+                <td>{{ $s['item']->name }} <span class="muted small">({{ $s['item']->unit }})</span>@if ($s['unrecorded'] > 0)<br><span class="small neg">{{ \App\Models\ItemUsage::servingsLabel($s['unrecorded']) }} drink(s) made with no open unit recorded</span>@endif</td>
+                <td class="r">{{ $s['opened'] }}</td>
+                <td class="r">{{ \App\Models\ItemUsage::servingsLabel($s['drinks']) }}</td>
+                <td class="r">{{ $s['used_up'] }}</td>
+                <td class="r">{{ $s['avg_drinks'] ? number_format($s['avg_drinks'], 1) : '—' }}</td>
+                <td class="r">{{ $s['cost_per_drink'] ? peso($s['cost_per_drink']) : '—' }}</td>
+                <td class="r">{{ $s['alerts'] }}</td>
+                <td class="r {{ $s['flagged'] ? 'neg' : '' }}">{{ $s['flagged'] }}</td>
+            </tr>
+        @empty
+            <tr><td colspan="8" class="c muted">No items are tracked, or none were used in this period.</td></tr>
+        @endforelse
+    </tbody>
+</table>
+<p class="muted small">Drinks are counted against the unit that was open when each order was marked ready. These are estimates for planning — physical counts remain the record. Units that were discarded or are under review are left out of the averages. Cost per drink = average unit cost of units opened ÷ average drinks per unit.</p>
+

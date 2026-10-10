@@ -5,6 +5,8 @@ namespace App\Livewire\Products;
 use App\Livewire\Concerns\WithToasts;
 use App\Models\Addon;
 use App\Models\Category;
+use App\Models\InventoryItem;
+use Illuminate\Support\Facades\DB;
 use App\Services\AuditLogger;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Title;
@@ -24,6 +26,8 @@ class Options extends Component
     public bool $showAddon = false;
     public ?int $addonId = null;
     public array $addon = [];
+    /** Inventory effect of the add-on: '' (none) | replace | add. */
+    public array $rule = [];
 
     /* ── Categories ─────────────────────────────────── */
 
@@ -99,15 +103,20 @@ class Options extends Component
         $this->resetValidation();
         $this->addonId = null;
         $this->addon = ['name' => '', 'price' => '', 'is_active' => true];
+        $this->rule = ['action' => '', 'role' => '', 'inventory_item_id' => '', 'servings' => 1];
         $this->showAddon = true;
     }
 
     public function editAddon(int $id): void
     {
         $this->resetValidation();
-        $a = Addon::findOrFail($id);
+        $a = Addon::with('ingredientRules')->findOrFail($id);
         $this->addonId = $id;
         $this->addon = ['name' => $a->name, 'price' => (float) $a->price, 'is_active' => $a->is_active];
+        $r = $a->ingredientRules->first();
+        $this->rule = $r
+            ? ['action' => $r->action, 'role' => $r->role, 'inventory_item_id' => (string) $r->inventory_item_id, 'servings' => $r->servings]
+            : ['action' => '', 'role' => '', 'inventory_item_id' => '', 'servings' => 1];
         $this->showAddon = true;
     }
 
@@ -117,9 +126,34 @@ class Options extends Component
             'addon.name' => ['required', 'string', 'max:100', Rule::unique('addons', 'name')->ignore($this->addonId)->whereNull('deleted_at')],
             'addon.price' => ['required', 'numeric', 'min:0', 'max:10000'],
             'addon.is_active' => ['boolean'],
-        ], [], ['addon.name' => 'add-on name', 'addon.price' => 'price'])['addon'];
+            'rule.action' => ['nullable', Rule::in(['', 'add', 'replace'])],
+            'rule.role' => ['exclude_if:rule.action,', 'required', 'string', 'max:30'],
+            'rule.inventory_item_id' => ['exclude_if:rule.action,', 'required', Rule::exists('inventory_items', 'id')->whereNull('deleted_at')],
+            'rule.servings' => ['exclude_if:rule.action,', 'required', 'numeric', 'min:0.25', 'max:10'],
+        ], [
+            'rule.role.required' => 'Name the role, e.g. milk.',
+            'rule.inventory_item_id.required' => 'Choose the inventory item.',
+        ], ['addon.name' => 'add-on name', 'addon.price' => 'price', 'rule.servings' => 'servings'])['addon'];
 
-        $this->addonId ? Addon::findOrFail($this->addonId)->update($data) : Addon::create($data);
+        DB::transaction(function () use ($data) {
+            $addon = $this->addonId ? tap(Addon::findOrFail($this->addonId))->update($data) : Addon::create($data);
+
+            // Inventory effect (Sales ↔ Inventory link): one rule per add-on from this form.
+            $before = $addon->ingredientRules()->with('item')->get()->map(fn ($r) => "{$r->action} {$r->role}: {$r->item->name}")->all();
+            $addon->ingredientRules()->delete();
+            if (filled($this->rule['action'] ?? '')) {
+                $addon->ingredientRules()->create([
+                    'action' => $this->rule['action'],
+                    'role' => mb_strtolower(trim($this->rule['role'])),
+                    'inventory_item_id' => (int) $this->rule['inventory_item_id'],
+                    'servings' => round((float) $this->rule['servings'], 2),
+                ]);
+            }
+            $after = $addon->ingredientRules()->with('item')->get()->map(fn ($r) => "{$r->action} {$r->role}: {$r->item->name}")->all();
+            if ($before != $after) {
+                AuditLogger::log('products', 'ingredients_updated', "Updated the inventory effect of add-on \"{$addon->name}\"", $addon, $before ?: null, $after ?: null);
+            }
+        });
         $this->toast($this->addonId ? 'Add-on updated.' : "Add-on “{$data['name']}” created. Allow it on products from the product form.");
         $this->showAddon = false;
     }
@@ -135,7 +169,8 @@ class Options extends Component
     {
         return view('livewire.products.options', [
             'categories' => Category::withCount('products')->orderBy('sort_order')->orderBy('name')->get(),
-            'addons' => Addon::withCount('products')->orderBy('name')->get(),
+            'addons' => Addon::withCount('products')->with('ingredientRules.item')->orderBy('name')->get(),
+            'inventoryItems' => InventoryItem::where('is_active', true)->orderBy('name')->get(['id', 'name', 'unit']),
         ]);
     }
 }

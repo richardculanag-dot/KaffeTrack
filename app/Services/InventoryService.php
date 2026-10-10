@@ -168,6 +168,9 @@ class InventoryService
 
                 $this->ledger($item, $batch, $by, 'stock_out', -1, $balance, $batch->unit_cost, $usage, $notes ?: 'Opened for use', $at);
 
+                // Sales ↔ Inventory: remember how many drinks a unit like this usually serves.
+                (new ServingTracker)->startUnit($item, $usage);
+
                 AuditLogger::log('inventory', 'stock_out',
                     "Stocked out 1 {$item->unit} of {$item->name} (remaining: {$balance})",
                     $usage, ['quantity_on_hand' => $balance + 1], ['quantity_on_hand' => $balance], $by);
@@ -210,12 +213,16 @@ class InventoryService
             'closed_at' => $at,
             'notes' => $notes ?: $usage->notes,
             'updated_at' => $at,
+            // A spoiled/spilled unit says nothing about how many drinks a unit normally serves.
+            'exclude_from_history' => $status === ItemUsage::STATUS_DISCARDED ? true : $usage->exclude_from_history,
         ])->save();
 
         $item = $usage->loadMissing('item')->item;
         $label = $status === ItemUsage::STATUS_DEPLETED ? 'depleted' : 'discarded';
         AuditLogger::log('inventory', $label,
-            ucfirst($label)." open unit of {$item->name} after {$usage->durationLabel()}".($notes ? ": {$notes}" : ''),
+            ucfirst($label)." open unit of {$item->name} after {$usage->durationLabel()}"
+                .($usage->servings_used > 0 ? ' ('.ItemUsage::servingsLabel($usage->servings_used).' drink(s) served)' : '')
+                .($notes ? ": {$notes}" : ''),
             $usage, ['status' => 'in_use'], ['status' => $status], $by);
 
         return $usage;

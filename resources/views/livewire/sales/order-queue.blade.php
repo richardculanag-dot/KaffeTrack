@@ -144,7 +144,10 @@
                 <div class="flex-1 space-y-6 overflow-y-auto px-6 py-5">
                     <div class="flex flex-wrap gap-2">
                         <x-status-badge :status="$viewing->status" />
-                        <x-status-badge :status="$viewing->payment_status" />
+                        {{-- Skip the payment badge when it would repeat the status (e.g. "Refunded" twice). --}}
+                        @if ($viewing->payment_status !== $viewing->status)
+                            <x-status-badge :status="$viewing->payment_status" />
+                        @endif
                         <span class="badge-gray">{{ \App\Models\Order::TYPES[$viewing->order_type] }}{{ $viewing->table_number ? ' · Table '.$viewing->table_number : '' }}</span>
                     </div>
 
@@ -246,6 +249,23 @@
         <x-slot:footer>
             <button type="button" class="btn-secondary" @click="show = false">Keep order</button>
             <x-submit form="refund-form" target="refund" variant="danger">Approve refund</x-submit>
+        </x-slot:footer>
+    </x-modal>
+
+    {{-- Sales ↔ Inventory: the drink uses an item with no open unit. One tap records the stock-out; never blocks. --}}
+    <x-modal wire:model="showReadyPrompt" title="No open unit recorded" description="This order uses items that aren't marked as open at the bar." size="sm" icon="box-open">
+        <ul class="space-y-2 text-sm">
+            @foreach ($readyPromptItems as $missing)
+                <li class="flex items-center justify-between gap-3 rounded-xl border border-sage-200 px-3.5 py-2.5">
+                    <span class="font-semibold">{{ $missing['name'] }}</span>
+                    <span class="{{ $missing['in_storage'] > 0 ? 'text-sage-500' : 'font-semibold text-danger-700' }}">{{ $missing['in_storage'] > 0 ? $missing['in_storage'].' in storage' : 'None in storage' }}</span>
+                </li>
+            @endforeach
+        </ul>
+        <p class="mt-3 text-sm text-sage-600">If you opened a new one for this order, record it now so drinks are counted against it. This is only an estimate — it never blocks the order.</p>
+        <x-slot:footer>
+            <button type="button" class="btn-secondary" wire:click="markReady({{ $readyPromptId ?? 0 }}, 'skip')">Mark ready anyway</button>
+            <button type="button" class="btn-primary" wire:click="markReady({{ $readyPromptId ?? 0 }}, 'open')" @disabled(collect($readyPromptItems)->every(fn ($m) => $m['in_storage'] <= 0))>Open it now & mark ready</button>
         </x-slot:footer>
     </x-modal>
 </div>

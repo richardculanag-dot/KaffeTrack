@@ -42,4 +42,10 @@ class OrderItem extends Model
     {
         return $this->hasMany(OrderItemAddon::class);
     }
+
+    /** Inventory items this line used, and the open units they were counted against. */
+    public function ingredients(): HasMany
+    {
+        return $this->hasMany(OrderItemIngredient::class);
+    }
 }

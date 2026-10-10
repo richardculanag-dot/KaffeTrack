@@ -1,4 +1,4 @@
-<div x-data="pos(@js($catalog), @js($discounts), @js($vat), @js($providers))" @keydown.window="shortcuts($event)"
+<div x-data="pos(@js($catalog), @js($discounts), @js($vat), @js($providers), @js(\App\Models\Order::tableCount()))" @keydown.window="shortcuts($event)"
      class="relative -mx-4 -my-6 flex h-[calc(100dvh-4rem)] sm:-mx-6 lg:-mx-8">
 
     {{-- ─────────────── No open shift: open the drawer right here ─────────────── --}}
@@ -54,6 +54,7 @@
                         </template>
                         <span class="font-display text-[1.05rem] font-semibold leading-snug" x-text="product.name"></span>
                         <span class="mt-1 text-[13px] text-sage-500" x-text="product.variants.map(v => v.name).join(' · ')"></span>
+                        <span x-show="product.stock_note" x-cloak class="mt-1.5 flex items-start gap-1 text-xs font-medium text-warn-700"><x-icon name="alert" class="mt-px size-3.5 shrink-0" /><span x-text="product.stock_note"></span></span>
                         <span class="mt-auto pt-3 text-[15px] font-semibold text-leaf-700 tabular" x-text="priceLabel(product)"></span>
                         <span x-show="inCartCount(product.id)" x-cloak
                               class="absolute right-3 top-3 grid size-7 place-items-center rounded-full bg-crema-500 text-[13px] font-bold text-white"
@@ -100,9 +101,22 @@
                     <button type="button" role="radio" :aria-checked="meta.order_type === 'dine_in'" @click="meta.order_type = 'dine_in'"
                             class="rounded-lg py-2 text-sm font-semibold transition" :class="meta.order_type === 'dine_in' ? 'bg-white text-ink shadow-sm' : 'text-sage-600'">Dine-in</button>
                 </div>
-                <div class="flex gap-2">
-                    <input type="text" x-model="meta.customer_name" maxlength="100" placeholder="Customer name (optional)" aria-label="Customer name" class="field py-2 text-sm">
-                    <input type="text" x-show="meta.order_type === 'dine_in'" x-cloak x-model="meta.table_number" maxlength="10" placeholder="Table" aria-label="Table number" class="field w-24 py-2 text-sm">
+                <input type="text" x-model="meta.customer_name" maxlength="100" placeholder="Customer name (optional)" aria-label="Customer name" class="field py-2 text-sm">
+
+                {{-- Dine-in table: pick, don't type (only valid tables can be chosen). Count comes from Admin → Settings. --}}
+                <div x-show="meta.order_type === 'dine_in'" x-cloak>
+                    <p id="table-label" class="mb-1.5 text-xs font-semibold text-sage-600">Table <span class="font-normal text-sage-500">(optional)</span></p>
+                    <div role="radiogroup" aria-labelledby="table-label" aria-describedby="table-number-error" class="grid grid-cols-6 gap-1.5">
+                        <button type="button" role="radio" x-ref="tableNone" :aria-checked="!meta.table_number ? 'true' : 'false'" @click="meta.table_number = ''"
+                                class="rounded-lg py-1.5 text-xs font-semibold transition"
+                                :class="!meta.table_number ? 'bg-leaf-600 text-white' : 'bg-sage-100 text-sage-600 hover:bg-sage-200'">None</button>
+                        <template x-for="n in maxTable" :key="n">
+                            <button type="button" role="radio" :aria-checked="Number(meta.table_number) === n ? 'true' : 'false'" :aria-label="`Table ${n}`" @click="meta.table_number = n"
+                                    x-text="n" class="rounded-lg py-1.5 text-sm font-semibold tabular-nums transition"
+                                    :class="Number(meta.table_number) === n ? 'bg-leaf-600 text-white' : 'bg-sage-100 text-ink hover:bg-sage-200'"></button>
+                        </template>
+                    </div>
+                    <p id="table-number-error" x-show="tableError" x-cloak x-text="tableError" class="mt-1.5 text-xs font-medium text-danger-600" role="alert"></p>
                 </div>
             </div>
 
@@ -193,6 +207,7 @@
                         <div>
                             <h2 id="picker-title" class="font-display text-xl font-semibold" x-text="picker.product.name"></h2>
                             <p class="text-sm text-sage-500" x-text="picker.product.description"></p>
+                            <p x-show="picker.product.stock_note" x-cloak class="mt-1 text-xs font-medium text-warn-700" x-text="picker.product.stock_note"></p>
                         </div>
                         <button type="button" class="btn-icon -mr-2" @click="picker.open = false" aria-label="Close"><x-icon name="x" /></button>
                     </div>
