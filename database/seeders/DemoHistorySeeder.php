@@ -41,6 +41,7 @@ class DemoHistorySeeder extends Seeder
     public function run(): void
     {
         mt_srand(20261010); // deterministic: the same demo data every time
+        $clock = Carbon::getTestNow(); // normally null (real time); kept so a fixed test date stays fixed
 
         $days = (int) env('SEED_DEMO_DAYS', 90);
         $invDays = min($days, (int) env('SEED_INVENTORY_DAYS', 21));
@@ -60,7 +61,7 @@ class DemoHistorySeeder extends Seeder
 
         $this->flushAudit();
         $this->resetSequences();
-        Carbon::setTestNow();
+        Carbon::setTestNow($clock);
     }
 
     /* ───────────────────────────────── Sales ───────────────────────────────── */
@@ -286,7 +287,8 @@ class DemoHistorySeeder extends Seeder
     private function seedInventory(Carbon $start, int $days, User $manager, $staff): void
     {
         $service = app(InventoryService::class);
-        $today = Carbon::today(); // real today (the loop below moves the test clock)
+        $today = Carbon::today(); // seeding day (the loop below moves the test clock)
+        $clock = Carbon::getTestNow(); // restored at the end
         $items = InventoryItem::all()->keyBy('sku');
         $suppliers = Supplier::all()->keyBy('id');
 
@@ -300,8 +302,12 @@ class DemoHistorySeeder extends Seeder
             'BK-CRO' => [1080, 4, 3.0],
         ];
         $shelfLife = ['BN' => 120, 'DY' => 14, 'SY' => 240, 'PW' => 180, 'BK' => 30];
+        // Per-item shelf life where the category default is unrealistic: only fresh milk lasts ~2 weeks;
+        // UHT cream, canned condensed milk and boxed plant milks keep for months. (Keeps slow movers like
+        // whipping cream from showing "Expired" in the demo.)
+        $shelfLifeBySku = ['DY-CRM' => 60, 'DY-CON' => 365, 'DY-OAT' => 180, 'DY-ALM' => 180];
 
-        $deliver = function (Carbon $date, bool $initial) use ($service, $items, $suppliers, $profile, $shelfLife, $manager) {
+        $deliver = function (Carbon $date, bool $initial) use ($service, $items, $suppliers, $profile, $shelfLife, $shelfLifeBySku, $manager) {
             $bySupplier = [];
             $onHand = InventoryItem::pluck('quantity_on_hand', 'id');
             foreach ($items as $sku => $item) {
@@ -318,7 +324,7 @@ class DemoHistorySeeder extends Seeder
                     'inventory_item_id' => $item->id,
                     'quantity' => $need,
                     'unit_cost' => $cost,
-                    'expiry_date' => $item->track_expiry ? $date->copy()->addDays($shelfLife[$prefix] ?? 60)->toDateString() : null,
+                    'expiry_date' => $item->track_expiry ? $date->copy()->addDays($shelfLifeBySku[$sku] ?? $shelfLife[$prefix] ?? 60)->toDateString() : null,
                     'batch_code' => $prefix.$date->format('md'),
                 ];
             }
@@ -341,16 +347,28 @@ class DemoHistorySeeder extends Seeder
 
         // Manager actions on specific days — run in time order together with that day's stock-outs.
         $special = [
-            $today->copy()->subDays(6)->setTime(9, 15)->toDateTimeString() => function () use ($service, $items, $manager, $today) {
-                // Demo alerts: one batch expiring within days and one already expired (still in storage).
+            // Delivered yesterday afternoon so they are still in storage today (earlier, first-expired-first-out
+            // would already have used them up).
+            $today->copy()->subDay()->setTime(16, 45)->toDateTimeString() => function () use ($service, $items, $manager, $today) {
+                // Demo alerts: two short-dated batches that show under "Expiring ≤ 7 days" (none already expired).
                 $service->stockIn(Supplier::where('name', 'Mindanao Dairy Co-op')->first(), [
-                    ['inventory_item_id' => $items['DY-CRM']->id, 'quantity' => 2, 'unit_cost' => 330, 'expiry_date' => $today->copy()->subDay()->toDateString(), 'batch_code' => 'CRM-PROMO'],
+                    ['inventory_item_id' => $items['DY-CRM']->id, 'quantity' => 2, 'unit_cost' => 330, 'expiry_date' => $today->copy()->addDays(5)->toDateString(), 'batch_code' => 'CRM-PROMO'],
                     ['inventory_item_id' => $items['DY-MILK']->id, 'quantity' => 6, 'unit_cost' => 98, 'expiry_date' => $today->copy()->addDays(3)->toDateString(), 'batch_code' => 'MLK-SHORT'],
-                ], $today->copy()->subDays(6), 'INV-55120', 'Promo batch — short dated', true, 'cash', $manager);
+                ], $today->copy()->subDay(), 'INV-55120', 'Promo batch — short dated', true, 'cash', $manager);
             },
             // A couple of manager write-offs so the movement ledger shows every type.
             $today->copy()->subDays(3)->setTime(16, 20)->toDateTimeString() => fn () => $service->adjust($items['DY-MILK']->refresh(), 'waste', 1, 'Carton dropped and burst during unloading', null, $manager),
             $today->copy()->subDays(2)->setTime(18, 5)->toDateTimeString() => fn () => $service->adjust($items['PK-STR']->refresh(), 'adjustment_in', 1, 'Physical count found an extra box in storage', null, $manager),
+            // Slow movers finished last night and not reopened yet, so the demo shows items with nothing
+            // open at the bar (Stock out button) next to items that are in use (Mark depleted).
+            $today->copy()->subDay()->setTime(21, 5)->toDateTimeString() => function () use ($service, $items, $staff) {
+                foreach (['DY-ALM', 'BN-APO', 'BK-CRO', 'SY-VAN', 'PK-STR'] as $sku) {
+                    $open = ItemUsage::where('inventory_item_id', $items[$sku]->id)->where('status', 'in_use')->first();
+                    if ($open) {
+                        $service->markDepleted($open, null, $staff->first(), Carbon::now());
+                    }
+                }
+            },
             // Make sure the dashboard has low-stock items to show: run two items down.
             $today->copy()->subDay()->setTime(17, 30)->toDateTimeString() => function () use ($service, $items, $manager) {
                 foreach (['SY-CAR', 'PW-MAT'] as $sku) {
@@ -419,7 +437,7 @@ class DemoHistorySeeder extends Seeder
             }
         }
 
-        Carbon::setTestNow();
+        Carbon::setTestNow($clock);
     }
 
     /* ──────────────────────────────── Finance ──────────────────────────────── */
