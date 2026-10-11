@@ -194,8 +194,19 @@ class StockOnHand extends Component
     {
         $this->authorize('manage');
         $item = InventoryItem::findOrFail($id);
-        if ($item->currentUsage()->exists()) {
-            $this->toast("Mark the open unit of {$item->name} as depleted before archiving it.", 'error');
+        // Only archive what is truly finished: nothing in storage, nothing open, nothing on the menu uses it
+        // (otherwise its value would stay in the books and sales would keep listing it in stock checks).
+        $usedBy = \App\Models\Product::whereIn('id', $item->productLinks()->select('product_id'))->orderBy('name')->pluck('name');
+        $addons = \App\Models\Addon::whereHas('ingredientRules', fn ($q) => $q->where('inventory_item_id', $item->id))->orderBy('name')->pluck('name');
+        $reason = match (true) {
+            $item->quantity_on_hand > 0 => "{$item->name} still has {$item->quantity_on_hand} {$item->unit} in storage. Use them or write them off (Adjust) first.",
+            $item->currentUsage()->exists() => "A unit of {$item->name} is still open. Mark it as depleted first.",
+            $usedBy->isNotEmpty() => "{$item->name} is still used by: ".$usedBy->join(', ').'. Remove it from those products first.',
+            $addons->isNotEmpty() => "{$item->name} is still used by the add-on(s): ".$addons->join(', ').'. Change those add-ons first.',
+            default => null,
+        };
+        if ($reason) {
+            $this->toast($reason, 'error');
 
             return;
         }

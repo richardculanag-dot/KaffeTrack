@@ -286,6 +286,7 @@ class DemoHistorySeeder extends Seeder
     private function seedInventory(Carbon $start, int $days, User $manager, $staff): void
     {
         $service = app(InventoryService::class);
+        $today = Carbon::today(); // real today (the loop below moves the test clock)
         $items = InventoryItem::all()->keyBy('sku');
         $suppliers = Supplier::all()->keyBy('id');
 
@@ -322,7 +323,9 @@ class DemoHistorySeeder extends Seeder
                 ];
             }
             foreach ($bySupplier as $supplierId => $lines) {
-                Carbon::setTestNow($date->copy()->setTime(9, mt_rand(0, 40)));
+                // Deliveries arrive before opening (6:00–6:40), so the ledger stays in time order:
+                // every balance follows from the line before it.
+                Carbon::setTestNow($date->copy()->setTime(6, mt_rand(0, 40)));
                 $service->stockIn($suppliers[$supplierId], $lines, $date, 'INV-'.mt_rand(10000, 99999), null, true,
                     collect(['cash', 'bank_transfer'])->random(), $manager);
             }
@@ -336,6 +339,30 @@ class DemoHistorySeeder extends Seeder
             $nextOpen[$sku] = $start->copy()->setTime(7, 0)->addMinutes(mt_rand(0, 600));
         }
 
+        // Manager actions on specific days — run in time order together with that day's stock-outs.
+        $special = [
+            $today->copy()->subDays(6)->setTime(9, 15)->toDateTimeString() => function () use ($service, $items, $manager, $today) {
+                // Demo alerts: one batch expiring within days and one already expired (still in storage).
+                $service->stockIn(Supplier::where('name', 'Mindanao Dairy Co-op')->first(), [
+                    ['inventory_item_id' => $items['DY-CRM']->id, 'quantity' => 2, 'unit_cost' => 330, 'expiry_date' => $today->copy()->subDay()->toDateString(), 'batch_code' => 'CRM-PROMO'],
+                    ['inventory_item_id' => $items['DY-MILK']->id, 'quantity' => 6, 'unit_cost' => 98, 'expiry_date' => $today->copy()->addDays(3)->toDateString(), 'batch_code' => 'MLK-SHORT'],
+                ], $today->copy()->subDays(6), 'INV-55120', 'Promo batch — short dated', true, 'cash', $manager);
+            },
+            // A couple of manager write-offs so the movement ledger shows every type.
+            $today->copy()->subDays(3)->setTime(16, 20)->toDateTimeString() => fn () => $service->adjust($items['DY-MILK']->refresh(), 'waste', 1, 'Carton dropped and burst during unloading', null, $manager),
+            $today->copy()->subDays(2)->setTime(18, 5)->toDateTimeString() => fn () => $service->adjust($items['PK-STR']->refresh(), 'adjustment_in', 1, 'Physical count found an extra box in storage', null, $manager),
+            // Make sure the dashboard has low-stock items to show: run two items down.
+            $today->copy()->subDay()->setTime(17, 30)->toDateTimeString() => function () use ($service, $items, $manager) {
+                foreach (['SY-CAR', 'PW-MAT'] as $sku) {
+                    $item = $items[$sku]->refresh();
+                    $remove = max(0, $item->quantity_on_hand - 1);
+                    if ($remove > 0) {
+                        $service->adjust($item, 'adjustment_out', $remove, 'Stock count correction (moved to sister branch)', null, $manager);
+                    }
+                }
+            },
+        ];
+
         for ($d = 0; $d < $days; $d++) {
             $day = $start->copy()->addDays($d);
 
@@ -344,6 +371,8 @@ class DemoHistorySeeder extends Seeder
                 $deliver($day, false);
             }
 
+            // Plan the day's openings, then run them with any manager action strictly in time order.
+            $events = [];
             $dayEnd = $day->copy()->setTime(21, 0);
             foreach ($profile as $sku => [$cost, $target, $lasts]) {
                 while ($nextOpen[$sku]->lt($dayEnd)) {
@@ -354,16 +383,17 @@ class DemoHistorySeeder extends Seeder
                     $person = $staff[mt_rand(0, $staff->count() - 1)];
                     $item = $items[$sku];
 
-                    $open = ItemUsage::where('inventory_item_id', $item->id)->where('status', 'in_use')->first();
-                    if ($open) {
-                        Carbon::setTestNow($at);
-                        $service->markDepleted($open, null, $person, $at);
-                    }
-
-                    if (InventoryItem::whereKey($item->id)->value('quantity_on_hand') > 0) {
-                        Carbon::setTestNow($at->copy()->addMinute());
-                        $service->stockOut($item, null, $person, $at->copy()->addMinute());
-                    }
+                    $events[] = [$at->copy(), function () use ($service, $item, $person, $at) {
+                        $open = ItemUsage::where('inventory_item_id', $item->id)->where('status', 'in_use')->first();
+                        if ($open) {
+                            Carbon::setTestNow($at);
+                            $service->markDepleted($open, null, $person, $at);
+                        }
+                        if (InventoryItem::whereKey($item->id)->value('quantity_on_hand') > 0) {
+                            Carbon::setTestNow($at->copy()->addMinute());
+                            $service->stockOut($item, null, $person, $at->copy()->addMinute());
+                        }
+                    }];
 
                     // Next unit opens when this one runs out (± randomness, staff are human).
                     $hours = max(2, $lasts * 14 * (0.75 + mt_rand(0, 50) / 100));
@@ -373,28 +403,19 @@ class DemoHistorySeeder extends Seeder
                     }
                 }
             }
-        }
+            foreach ($special as $when => $action) {
+                $whenAt = Carbon::parse($when);
+                if ($whenAt->isSameDay($day)) {
+                    $events[] = [$whenAt, function () use ($whenAt, $action) {
+                        Carbon::setTestNow($whenAt);
+                        $action();
+                    }];
+                }
+            }
 
-        // A couple of manager write-offs so the movement ledger shows every type.
-        Carbon::setTestNow(today()->subDays(3)->setTime(16, 20));
-        $service->adjust($items['DY-MILK']->refresh(), 'waste', 1, 'Carton dropped and burst during unloading', null, $manager);
-        Carbon::setTestNow(today()->subDays(2)->setTime(18, 5));
-        $service->adjust($items['PK-STR']->refresh(), 'adjustment_in', 1, 'Physical count found an extra box in storage', null, $manager);
-
-        // Demo alerts: one batch expiring within days and one already expired (still in storage).
-        Carbon::setTestNow(today()->subDays(6)->setTime(9, 15));
-        $service->stockIn(Supplier::where('name', 'Mindanao Dairy Co-op')->first(), [
-            ['inventory_item_id' => $items['DY-CRM']->id, 'quantity' => 2, 'unit_cost' => 330, 'expiry_date' => today()->subDay()->toDateString(), 'batch_code' => 'CRM-PROMO'],
-            ['inventory_item_id' => $items['DY-MILK']->id, 'quantity' => 6, 'unit_cost' => 98, 'expiry_date' => today()->addDays(3)->toDateString(), 'batch_code' => 'MLK-SHORT'],
-        ], today()->subDays(6), 'INV-55120', 'Promo batch — short dated', true, 'cash', $manager);
-
-        // Make sure the dashboard has low-stock items to show: run two items down.
-        foreach (['SY-CAR', 'PW-MAT'] as $sku) {
-            $item = $items[$sku]->refresh();
-            $remove = max(0, $item->quantity_on_hand - 1);
-            if ($remove > 0) {
-                Carbon::setTestNow(today()->subDay()->setTime(17, 30));
-                $service->adjust($item, 'adjustment_out', $remove, 'Stock count correction (moved to sister branch)', null, $manager);
+            usort($events, fn ($a, $b) => $a[0] <=> $b[0]);
+            foreach ($events as [, $run]) {
+                $run();
             }
         }
 

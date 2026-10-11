@@ -96,7 +96,10 @@ class Analytics
                 ->selectRaw('EXTRACT(HOUR FROM created_at)::int as bucket, SUM(total_amount) as sales, COUNT(*) as orders')
                 ->groupBy('bucket')->get()->keyBy('bucket');
             $labels = $sales = $orders = [];
-            for ($h = 6; $h <= 22; $h++) {
+            // Opening hours (6 AM–10 PM), widened to include any hour that actually had orders,
+            // so the bars always add up to the day's net sales.
+            [$first, $last] = self::hourRange($rows->keys());
+            for ($h = $first; $h <= $last; $h++) {
                 $labels[] = Carbon::createFromTime($h)->format('g A');
                 $sales[] = round((float) ($rows[$h]->sales ?? 0), 2);
                 $orders[] = (int) ($rows[$h]->orders ?? 0);
@@ -127,12 +130,21 @@ class Analytics
             ->selectRaw('EXTRACT(HOUR FROM created_at)::int as hour, COUNT(*) as orders')
             ->groupBy('hour')->pluck('orders', 'hour');
         $labels = $values = [];
-        for ($h = 6; $h <= 22; $h++) {
+        [$first, $last] = self::hourRange($rows->keys());
+        for ($h = $first; $h <= $last; $h++) {
             $labels[] = Carbon::createFromTime($h)->format('gA');
             $values[] = round(($rows[$h] ?? 0) / $this->days(), 1);
         }
 
         return compact('labels', 'values');
+    }
+
+    /** 6 AM–10 PM, extended to cover any hour that has data. @return array{0:int,1:int} */
+    private static function hourRange(Collection $hours): array
+    {
+        $hours = $hours->map(fn ($h) => (int) $h);
+
+        return [min(6, $hours->min() ?? 6), max(22, $hours->max() ?? 22)];
     }
 
     public function topProducts(int $limit = 8): Collection

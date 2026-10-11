@@ -6,7 +6,7 @@
         <td><div class="label">Waste & expired (cost)</div><div class="value neg">{{ peso($loss_cost) }}</div></td>
     </tr>
 </table>
-<div class="note">KaffeTrack uses an open-container model: a <b>stock out</b> moves one sealed unit from storage to the bar, where it stays open until it is marked depleted. Quantities are whole units.</div>
+<div class="note">KaffeTrack uses an open-container model: a <b>stock out</b> moves sealed units from storage to the bar (one unit per item stays open until it is used up), either when it happens or at the end-of-shift stock check. Quantities are whole units.</div>
 
 <h2>Stock on hand (as of {{ now()->format('M j, Y g:i A') }}) and movement in the period</h2>
 <table>
@@ -68,13 +68,13 @@
     $differences = $stock_checks->filter(fn ($c) => $c->needsAttention());
     $shiftCount = $stock_checks->pluck('cash_shift_id')->unique()->count();
 @endphp
-<p class="small">{{ $stock_checks->count() }} item count(s) across {{ $shiftCount }} shift(s): {{ $stock_checks->count() - $differences->count() }} matched the records, {{ $differences->count() }} need a look. Only those are listed.</p>
+<p class="small">Shifts opened in this period. {{ $stock_checks->count() }} item count(s) across {{ $shiftCount }} shift(s): {{ $stock_checks->count() - $differences->count() }} matched the records, {{ $differences->count() }} need a look. Only those are listed.</p>
 <table>
     <thead><tr><th>Checked</th><th>Item</th><th class="r">System had</th><th class="r">Counted</th><th>Recorded</th><th>By</th></tr></thead>
     <tbody>
         @forelse ($differences as $c)
             <tr>
-                <td>{{ $c->checked_at->format('M j, g:i A') }}<br><span class="muted small">Shift #{{ $c->cash_shift_id }}</span></td>
+                <td>{{ $c->checked_at->format('M j, g:i A') }}<br><span class="muted small">Shift #{{ $c->cash_shift_id }} · opened {{ $c->shift?->opened_at?->format('M j') }}</span></td>
                 <td>{{ $c->item?->name }} <span class="muted small">({{ $c->item?->unit }})</span></td>
                 <td class="r">{{ $c->expected_sealed }}</td>
                 <td class="r {{ $c->difference() < 0 ? 'neg' : ($c->difference() > 0 ? 'warn' : '') }}">{{ $c->counted_sealed }}</td>

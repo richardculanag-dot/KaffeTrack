@@ -29,8 +29,8 @@ results were confirmed both on screen and with SQL queries.
 | Q-05 | Queue | Refund with correct PIN | Order refunded; refund row names approving manager | Pass |
 | C-01 | Drawer | Close with ₱200 short and no note | Blocked: explanation required | Pass |
 | C-02 | Drawer | Expected cash | ₱2,500 opening + ₱160 cash sale − ₱160 cash refund = ₱2,500 | Pass |
-| I-01 | Inventory | Stock out while a unit is open | Blocked (button replaced by Mark depleted; DB unique index) | Pass |
-| I-02 | Inventory | Mark depleted → stock out | New unit in use; quantity −1; ledger row | Pass |
+| I-01 | Inventory | Stock out while a unit is open | The open unit is marked used up and a new one opens; only one open unit per item (DB unique index) | Pass |
+| I-02 | Inventory | Mark depleted → stock out (quantity 1) | New unit in use; quantity −1; ledger row "Opened for use" | Pass |
 | I-03 | Inventory | Waste write-off of 2 | Quantity −2 from earliest-expiring batch; ledger + audit | Pass |
 | I-04 | Inventory | Delivery missing expiry dates | Inline "Required for this item." errors | Pass |
 | I-05 | Inventory | Delivery of 2 lines | 2 batches; stock up; ₱4,500 Inventory Purchases expense created | Pass |
@@ -56,9 +56,9 @@ results were confirmed both on screen and with SQL queries.
 | `quantity_on_hand` = Σ `stock_movements.quantity` for every item | 0 violations |
 | Every order's subtotal = Σ its line totals | 0 mismatches |
 | Every paid/refunded order has a payment | 0 missing |
-| Every shift's expected cash = opening + cash sales − cash refunds − cash out | 0 mismatches |
+| Every shift's expected cash = opening + cash sales − cash refunds + cash in − cash out | 0 mismatches |
 | Every delivery's total = its linked expense | 0 mismatches |
-| Row Level Security enabled on every table | 34 / 34 |
+| Row Level Security enabled on every table | 38 / 38 |
 
 ## Page smoke test
 
@@ -67,8 +67,10 @@ errors and no browser console errors. At 390 px width no page scrolls horizontal
 
 ## Hand-checked calculations
 
-- Income statement (Sept 2026): gross ₱329,530.00 − ₱6,934.72 = net sales ₱322,595.28; + ₱15,600 other
-  income = ₱338,195.28; expenses ₱261,013.00; net income ₱77,182.28 (22.8 %).
+- Income statement (Sept 2026, demo data seeded on 2026-10-11): gross ₱345,200.00 − ₱6,914.35 (discounts
+  and VAT removed) = net sales ₱338,285.65; + ₱34,100.00 other income = ₱372,385.65; expenses ₱257,243.00;
+  net income ₱115,142.65 (30.9 %). The demo history is the 90 days before the seeding date, so re-seeding
+  on another day gives different figures — recompute them from Reports → Income statement.
 
 ## Sales ↔ Inventory integration (end-of-shift stock check, Update 3)
 
@@ -96,6 +98,20 @@ errors and no browser console errors. At 390 px width no page scrolls horizontal
 | SI-20 | Stock check → "Used something without an order?" → add 16 oz Cold Cups, count 2 fewer | Listed with "Added"; review "2 stocked out"; recorded |
 | SI-21 | Stock check: item with no open unit, count matches, "Still has some" | Review warns to recount; after saving, the check has a manager note |
 | SI-22 | Cash count step → "Count it first" with an item | Returns to Step 1 with that item |
+| SI-23 | Sell a latte → count → keep open → sell a mocha → End-of-day count | Beans, Fresh Milk **and** Dark Chocolate Sauce listed; again after another mocha |
+| SI-24 | Item with an expired batch, count 1 short | Review: "1 from an expired batch — recorded as expired"; ledger type Expired |
+| SI-25 | Archive an item with stock / an open unit / used by a product | Refused with the reason; allowed once storage is 0, nothing open, unused |
+| SI-26 | After a count, keep the shift open | Shift card: "Stock check: N counts … View" opens the counts |
+
+## Update 3.2 — sales checks
+
+| # | Steps | Expected |
+|---|---|---|
+| U-1 | Senior discount on ₱150 → payment | "Exact" button fills ₱107.14 |
+| U-2 | Close the drawer ₱0.14 short | No note required; recorded as a centavo difference |
+| U-3 | Cash refund ₱300 with ₱0 expected in the drawer | Refused: "Only ₱0.00 cash is in the drawer…" |
+| U-4 | Turn off a discount while the POS is open, then charge with it | Refused: "That discount is no longer available…" |
+| U-5 | Block the network while charging | Error after 20 s; retrying makes one order, not two |
 
 ## Update 2 — validation and safety
 

@@ -16,18 +16,19 @@
 
 <h2>Daily sales</h2>
 <table>
-    <thead><tr><th>Date</th><th class="r">Orders</th><th class="r">Gross</th><th class="r">Discounts</th><th class="r">VAT-exempt sales</th><th class="r">VAT</th><th class="r">Net sales</th></tr></thead>
+    <thead><tr><th>Date</th><th class="r">Orders</th><th class="r">Gross</th><th class="r">Discounts</th><th class="r">VAT removed</th><th class="r">VAT-exempt sales</th><th class="r">VAT</th><th class="r">Net sales</th></tr></thead>
     <tbody>
         @forelse ($daily as $d)
-            <tr><td>{{ $d['date']->format('D, M j') }}</td><td class="r">{{ $d['orders'] }}</td><td class="r">{{ peso($d['gross']) }}</td><td class="r">{{ peso($d['discounts']) }}</td><td class="r">{{ peso($d['vat_exempt']) }}</td><td class="r">{{ peso($d['vat']) }}</td><td class="r">{{ peso($d['net']) }}</td></tr>
+            <tr><td>{{ $d['date']->format('D, M j') }}</td><td class="r">{{ $d['orders'] }}</td><td class="r">{{ peso($d['gross']) }}</td><td class="r">{{ peso($d['discounts']) }}</td><td class="r">{{ peso($d['vat_removed']) }}</td><td class="r">{{ peso($d['vat_exempt']) }}</td><td class="r">{{ peso($d['vat']) }}</td><td class="r">{{ peso($d['net']) }}</td></tr>
         @empty
-            <tr><td colspan="7" class="c muted">No paid orders in this period.</td></tr>
+            <tr><td colspan="8" class="c muted">No paid orders in this period.</td></tr>
         @endforelse
         @if ($daily->count() > 1)
-            <tr class="total"><td>Total</td><td class="r">{{ $daily->sum('orders') }}</td><td class="r">{{ peso($daily->sum('gross')) }}</td><td class="r">{{ peso($daily->sum('discounts')) }}</td><td class="r">{{ peso($daily->sum('vat_exempt')) }}</td><td class="r">{{ peso($daily->sum('vat')) }}</td><td class="r">{{ peso($daily->sum('net')) }}</td></tr>
+            <tr class="total"><td>Total</td><td class="r">{{ $daily->sum('orders') }}</td><td class="r">{{ peso($daily->sum('gross')) }}</td><td class="r">{{ peso($daily->sum('discounts')) }}</td><td class="r">{{ peso($daily->sum('vat_removed')) }}</td><td class="r">{{ peso($daily->sum('vat_exempt')) }}</td><td class="r">{{ peso($daily->sum('vat')) }}</td><td class="r">{{ peso($daily->sum('net')) }}</td></tr>
         @endif
     </tbody>
 </table>
+<p class="muted small">Gross − Discounts − VAT removed = Net sales. VAT is removed from Senior Citizen/PWD sales before their discount (they are VAT-exempt).</p>
 
 <table style="margin-top:6px"><tr>
     <td style="width:50%; padding:0 8px 0 0; border:0">

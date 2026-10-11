@@ -212,7 +212,9 @@ class CashDrawer extends Component
 
         $variance = round($this->counted - $shift->computeExpectedCash(), 2);
         // Accountability: any over/short must be explained before the drawer can be closed.
-        if (abs($variance) >= 0.01 && mb_strlen(trim($this->closeNotes)) < 5) {
+        // Under ₱1 is centavo change (e.g. after Senior/PWD sales — the drawer has no centavo coins):
+        // still recorded as the variance, but no explanation is required.
+        if (abs($variance) >= 1 && mb_strlen(trim($this->closeNotes)) < 5) {
             $this->addError('closeNotes', 'The count is '.($variance > 0 ? 'over' : 'short').' by '.peso(abs($variance)).'. Add a short explanation.');
 
             return;
@@ -228,7 +230,7 @@ class CashDrawer extends Component
 
     public function render()
     {
-        $shift = CashShift::with(['opener', 'cashMovements.user'])->where('status', 'open')->first();
+        $shift = CashShift::with(['opener', 'cashMovements.user', 'stockChecks'])->where('status', 'open')->first();
         $checkItems = $shift && $this->showClose ? app(CashShiftService::class)->itemsToCheck($shift, $this->extraCheckIds) : collect();
         $addable = $shift && $this->showClose
             ? \App\Models\InventoryItem::active()->whereNotIn('id', $checkItems->pluck('id'))

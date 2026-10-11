@@ -61,7 +61,9 @@ class ReportBuilder
         $daily = Order::where('payment_status', 'paid')->whereBetween('created_at', [$this->from, $this->to])
             ->selectRaw('DATE(created_at) as d, COUNT(*) as orders, SUM(subtotal) as gross, SUM(discount_amount) as discounts, SUM(total_amount) as net, SUM(vat_amount) as vat, SUM(vat_exempt_sales) as vat_exempt')
             ->groupBy('d')->orderBy('d')->get()
-            ->map(fn ($r) => ['date' => Carbon::parse($r->d), 'orders' => (int) $r->orders, 'gross' => (float) $r->gross, 'discounts' => (float) $r->discounts, 'net' => (float) $r->net, 'vat' => (float) $r->vat, 'vat_exempt' => (float) $r->vat_exempt]);
+            ->map(fn ($r) => ['date' => Carbon::parse($r->d), 'orders' => (int) $r->orders, 'gross' => (float) $r->gross, 'discounts' => (float) $r->discounts, 'net' => (float) $r->net, 'vat' => (float) $r->vat, 'vat_exempt' => (float) $r->vat_exempt,
+                // VAT taken off Senior/PWD sales before their discount: gross − discounts − VAT removed = net.
+                'vat_removed' => round((float) $r->gross - (float) $r->discounts - (float) $r->net, 2)]);
 
         $discounts = Order::where('payment_status', 'paid')->whereNotNull('discount_id')->whereBetween('created_at', [$this->from, $this->to])
             ->selectRaw('discount_name, COUNT(*) as n, SUM(discount_amount) as total')->groupBy('discount_name')->orderByDesc('total')->get();
@@ -125,8 +127,11 @@ class ReportBuilder
             'deliveries' => StockIn::with('supplier')->whereBetween('received_date', $this->dates())->orderBy('received_date')->get(),
             'writeoffs' => StockMovement::with(['item', 'user'])->whereIn('type', ['waste', 'expired', 'adjustment_out', 'adjustment_in'])
                 ->whereBetween('created_at', [$this->from, $this->to])->latest('created_at')->get(),
+            // Dated by the shift they belong to (the day it opened), like the Cash drawer report —
+            // a check done after midnight still belongs to that night's shift.
             'stock_checks' => ShiftStockCheck::with(['item', 'checker', 'shift'])
-                ->whereBetween('checked_at', [$this->from, $this->to])->orderBy('checked_at')->get(),
+                ->whereHas('shift', fn ($q) => $q->whereBetween('opened_at', [$this->from, $this->to]))
+                ->orderBy('checked_at')->get(),
         ];
     }
 
@@ -208,7 +213,8 @@ class ReportBuilder
         return [
             'total' => (clone $query)->count(),
             'by_module' => (clone $query)->selectRaw('module, COUNT(*) as n')->groupBy('module')->orderByDesc('n')->pluck('n', 'module'),
-            'logs' => $query->latest('created_at')->limit(1500)->get(),
+            // DomPDF needs a lot of memory per table row; 500 rows stays well inside the limit (1,500 crashed).
+            'logs' => $query->latest('created_at')->limit(500)->get(),
             'module' => $module,
         ];
     }

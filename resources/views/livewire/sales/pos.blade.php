@@ -188,7 +188,7 @@
                     Charge <span x-text="peso(totals.total)"></span>
                     <kbd class="ml-1 rounded bg-white/15 px-1.5 text-xs font-medium">F9</kbd>
                 </button>
-                <button type="button" class="btn-ghost btn-sm mt-1.5 w-full" @click="saveUnpaid()" :disabled="!cart.length">Save as unpaid (pay later)</button>
+                <button type="button" class="btn-ghost btn-sm mt-1.5 w-full" @click="saveUnpaid()" :disabled="!cart.length || saving" x-text="saving ? 'Saving…' : 'Save as unpaid (pay later)'">Save as unpaid (pay later)</button>
             </div>
         </div>
         <div class="h-3"></div>

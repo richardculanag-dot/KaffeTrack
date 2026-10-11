@@ -1,5 +1,43 @@
 # Changes after the initial build
 
+## Update 3.2 — Pre-defense fixes (audit)
+
+**Database:** one migration, `2026_10_14_000100_stock_check_recounts` — an item can be counted more than
+once per shift, and a count records expired units separately. Run `php artisan migrate`.
+
+**Stock check**
+- Items **sold again after their count** are listed again at the next End-of-day count (before, each item
+  was counted once per shift, so later sales in the same shift were never checked).
+- Units missing from the shelf come off **expired batches first** and are recorded as *Expired (written
+  off)*, never as opened for use. The review screen says so.
+- The open shift's card on the Cash drawer page shows the stock check ("N counts, last at … — View").
+  Shift details now work for an open shift and list each count with its time and who counted.
+
+**Inventory**
+- An inventory item can only be archived when nothing is in storage, nothing is open and no product or
+  add-on uses it; otherwise the reason is shown.
+
+**Sales and cash drawer**
+- POS: if the connection drops while charging, the dialog no longer freezes (it shows an error after 20 s)
+  and retrying never creates a second order (each attempt has a one-time ID). "Save as unpaid" can't be
+  double-tapped.
+- POS: an **Exact** cash button for totals with centavos (e.g. ₱107.14 after a Senior/PWD discount).
+- Closing: a difference **under ₱1** (centavos) is still recorded but needs no explanation.
+- A **cash refund larger than the cash in the drawer** is refused with a message (record a Cash in first).
+- A discount turned off after the POS page was loaded is refused with a message instead of being dropped.
+
+**Dashboard and reports**
+- "Today" sales chart and busiest hours cover every hour that had orders (not only 6 AM–10 PM).
+- "Sales by category" is labelled **Gross sales by category** (before discounts and VAT removal).
+- Sales PDF: **VAT removed** column, so Gross − Discounts − VAT removed = Net.
+- Inventory PDF: stock checks are listed by the shift they belong to (as in the Cash drawer report).
+
+**Docs and screen text** — removed statements that no longer matched the system (stock out "blocked while a
+unit is open", "one unit" stock-outs, 34 tables, drawer help without the stock check).
+
+**Demo data** — the inventory history is generated in strict time order (deliveries before opening), so
+every balance in Stock movements follows from the line before it. Re-seed with `php artisan migrate:fresh --seed`.
+
 ## Update 3.1 — Stock out quantity, counting unlisted items, open-unit warning
 
 No database change.

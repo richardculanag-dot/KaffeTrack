@@ -203,8 +203,10 @@ class InventoryService
      * Staff count the SEALED units left on the shelf for an item the shift's sales used. Nothing is
      * estimated: the difference between the system's count and the shelf is recorded as real ledger
      * movements, split the way staff say —
+     *   expired units    from expired batches, taken first          → "expired" movements (written off)
      *   $wasted          units thrown away (spoiled, dropped)       → "waste" movements
      *   the rest         units opened for use but not recorded yet  → stock-outs
+     * An item can be counted again later in the same shift (if it is sold after its count).
      * Units are opened one after another (one open unit per item), so every unit opened here except
      * the last is marked finished; $openFinished says whether the unit open at the bar now is empty.
      * A count HIGHER than the system's changes nothing (usually an unrecorded delivery) and is noted.
@@ -229,16 +231,18 @@ class InventoryService
 
         return DB::transaction(function () use ($shift, $item, $counted, $wasted, $openFinished, $note, $by, $at, $label) {
             $item = InventoryItem::lockForUpdate()->findOrFail($item->id);
-            if (ShiftStockCheck::where('cash_shift_id', $shift->id)->where('inventory_item_id', $item->id)->exists()) {
-                throw new BusinessRuleException("{$item->name} was already checked for this shift.");
-            }
 
             $expected = (int) $item->quantity_on_hand;
             $missing = max(0, $expected - $counted);
             if ($wasted > $missing) {
                 throw new BusinessRuleException("{$item->name}: only {$missing} {$item->unit} are missing from the shelf, so no more than {$missing} can be marked as thrown away.");
             }
-            $opened = $missing - $wasted;
+            // Oldest first: expired units that are no longer on the shelf are written off as expired —
+            // never recorded as "opened for use" in drinks. Staff-reported waste covers the rest first.
+            $expiredOnBooks = (int) $item->availableBatches()->whereNotNull('expiry_date')->where('expiry_date', '<', $at->toDateString())->sum('quantity_remaining');
+            $expired = min($missing, $expiredOnBooks);
+            $wasted = min($wasted, $missing - $expired);
+            $opened = $missing - $expired - $wasted;
             if ($counted > $expected) {
                 $note = trim('More than recorded on the shelf — check for a delivery that was not entered. '.($note ?? ''));
             }
@@ -250,11 +254,27 @@ class InventoryService
                 'counted_sealed' => $counted,
                 'stocked_out' => $opened,
                 'wasted' => $wasted,
+                'expired' => $expired,
                 'open_unit_finished' => null,
                 'note' => $note ? mb_substr($note, 0, 255) : null,
                 'checked_by' => $by->id,
                 'checked_at' => $at,
             ]);
+
+            if ($expired > 0) {
+                $left = $expired;
+                $batches = $item->availableBatches()->whereNotNull('expiry_date')->where('expiry_date', '<', $at->toDateString())->lockForUpdate()->get();
+                foreach ($batches as $batch) {
+                    $take = min($left, $batch->quantity_remaining);
+                    $batch->decrement('quantity_remaining', $take);
+                    $balance = $this->changeOnHand($item, -$take);
+                    $this->ledger($item, $batch, $by, 'expired', -$take, $balance, $batch->unit_cost, $check, "Expired — written off at the {$label}", $at);
+                    $left -= $take;
+                    if ($left === 0) {
+                        break;
+                    }
+                }
+            }
 
             // Thrown away straight from storage (never opened at the bar).
             if ($wasted > 0) {
@@ -296,7 +316,7 @@ class InventoryService
             AuditLogger::log('inventory', 'shift_stock_check',
                 "{$item->name}: counted {$counted} sealed (system had {$expected}) — {$check->outcome()}"
                     .($check->open_unit_finished === true ? '; open unit finished' : ($check->open_unit_finished === false ? '; open unit still in use' : '')),
-                $check, ['quantity_on_hand' => $expected], ['quantity_on_hand' => $expected - $opened - $wasted], $by);
+                $check, ['quantity_on_hand' => $expected], ['quantity_on_hand' => $expected - $opened - $wasted - $expired], $by);
 
             return $check;
         });

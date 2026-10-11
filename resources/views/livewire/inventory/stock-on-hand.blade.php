@@ -1,6 +1,6 @@
 @php $isManager = auth()->user()->isManager(); @endphp
 <div class="space-y-6">
-    <x-page-header description="Units in storage and what's currently open at the bar. Stock out takes one unit out of storage (and finishes the open one). During a rush you can skip it — the end-of-shift check at the cash drawer records what you missed.">
+    <x-page-header description="Units in storage and what's currently open at the bar. Stock out takes units out of storage (usually one; the open one is marked used up). During a rush you can skip it — the end-of-shift stock check at the cash drawer records what you missed.">
         <x-slot:actions>
             @if ($isManager)
                 <button type="button" class="btn-secondary" wire:click="$set('showCategories', true)"><x-icon name="layers" class="size-4" /> Item categories</button>

@@ -13,6 +13,7 @@ use App\Models\Setting;
 use App\Rules\DisplayName;
 use App\Services\CashShiftService;
 use App\Services\OrderService;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -47,8 +48,20 @@ class Pos extends Component
     /**
      * Called from the browser with the cart. Returns a plain array the UI uses for the success screen.
      */
-    public function checkout(OrderService $orders, array $cart, array $meta, ?array $payment = null): array
+    public function checkout(OrderService $orders, array $cart, array $meta, ?array $payment = null, ?string $checkoutId = null): array
     {
+        // Same attempt sent twice (lost connection + retry, double tap): return the order already made.
+        $key = $checkoutId && preg_match('/^[A-Za-z0-9\-]{8,64}$/', $checkoutId) ? 'checkout:'.auth()->id().':'.$checkoutId : null;
+        if ($key) {
+            $done = Cache::get($key);
+            if (is_int($done) && ($existing = Order::with('payment')->find($done))) {
+                return $this->result($existing);
+            }
+            if (! Cache::add($key, 'pending', 120)) {
+                return ['ok' => false, 'message' => 'This order is still being recorded. Wait a moment, then check the Order queue before trying again.'];
+            }
+        }
+
         try {
             $data = Validator::make(compact('cart', 'meta', 'payment'), [
                 'cart' => ['required', 'array', 'min:1', 'max:50'],
@@ -80,13 +93,27 @@ class Pos extends Component
 
             $order = $orders->place($data['cart'], $data['meta'], $data['payment'] ?? null);
         } catch (ValidationException $e) {
+            $key && Cache::forget($key);
+
             return ['ok' => false, 'message' => collect($e->errors())->flatten()->first()];
         } catch (BusinessRuleException $e) {
+            $key && Cache::forget($key);
+
             return ['ok' => false, 'message' => $e->getMessage()];
+        } catch (\Throwable $e) {
+            $key && Cache::forget($key);
+            throw $e;
         }
 
+        $key && Cache::put($key, $order->id, now()->addHours(2));
         $this->dispatch('shift-changed');
 
+        return $this->result($order);
+    }
+
+    /** What the POS success screen needs. */
+    private function result(Order $order): array
+    {
         return [
             'ok' => true,
             'order_id' => $order->id,

@@ -26,6 +26,10 @@ export default (catalog, discounts, vat, providers, maxTable = 10) => ({
 
     // Payment
     pay: { open: false, method: 'cash', tendered: '', provider: '', reference: '', busy: false, error: '' },
+    saving: false, // "Save as unpaid" in progress
+    // One id per order attempt: if the connection drops and the cashier retries, the server returns the
+    // order it already created instead of making a second one. A new id is made once the cart changes.
+    checkoutId: null,
     cartOpen: false, // small screens
     result: null, // success screen
 
@@ -39,7 +43,7 @@ export default (catalog, discounts, vat, providers, maxTable = 10) => ({
             }
         } catch (e) { /* storage unavailable — fine */ }
 
-        this.$watch('cart', () => this.persist());
+        this.$watch('cart', () => { this.persist(); this.checkoutId = null; });
         this.$watch('meta', () => this.persist());
 
         window.addEventListener('beforeunload', (e) => {
@@ -253,8 +257,9 @@ export default (catalog, discounts, vat, providers, maxTable = 10) => ({
 
     get quickCash() {
         const t = this.totals.total;
-        const set = new Set([Math.ceil(t), Math.ceil(t / 50) * 50, Math.ceil(t / 100) * 100, Math.ceil(t / 500) * 500, Math.ceil(t / 1000) * 1000]);
-        return [...set].filter((v) => v >= t).slice(0, 4);
+        // The exact amount first (e.g. ₱107.14 after a Senior/PWD discount), then round notes.
+        const set = new Set([t, Math.ceil(t), Math.ceil(t / 50) * 50, Math.ceil(t / 100) * 100, Math.ceil(t / 500) * 500, Math.ceil(t / 1000) * 1000]);
+        return [...set].filter((v) => v >= t).slice(0, 5);
     },
 
     get change() {
@@ -280,8 +285,15 @@ export default (catalog, discounts, vat, providers, maxTable = 10) => ({
         };
     },
 
+    newCheckoutId() {
+        try {
+            if (crypto?.randomUUID) return crypto.randomUUID();
+        } catch (e) { /* not a secure context — fall back */ }
+        return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
+    },
+
     async submit(withPayment) {
-        if (!this.validateOrder()) return;
+        if (!this.validateOrder() || this.saving || this.pay.busy) return;
         const { cart, meta } = this.payload();
         let payment = null;
 
@@ -300,10 +312,25 @@ export default (catalog, discounts, vat, providers, maxTable = 10) => ({
             };
             this.pay.busy = true;
             this.pay.error = '';
+        } else {
+            this.saving = true;
         }
 
-        const res = await this.$wire.checkout(cart, meta, payment);
-        this.pay.busy = false;
+        this.checkoutId ??= this.newCheckoutId();
+        let res;
+        try {
+            // If the request is lost, Livewire's promise may never settle — give up waiting after 20 s
+            // so the dialog never freezes. Retrying is safe because of checkoutId.
+            res = await Promise.race([
+                this.$wire.checkout(cart, meta, payment, this.checkoutId),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 20000)),
+            ]);
+        } catch (e) {
+            res = { ok: false, message: 'Connection problem — the order may not have been saved. Check the connection and try again; it will not be recorded twice.' };
+        } finally {
+            this.pay.busy = false;
+            this.saving = false;
+        }
 
         if (!res?.ok) {
             const message = res?.message ?? 'Something went wrong. Please try again.';
@@ -315,6 +342,7 @@ export default (catalog, discounts, vat, providers, maxTable = 10) => ({
         this.cartOpen = false;
         this.result = res;
         this.clearCart(true);
+        this.checkoutId = null;
     },
 
     saveUnpaid() {

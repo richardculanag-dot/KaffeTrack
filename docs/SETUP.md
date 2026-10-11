@@ -99,7 +99,7 @@ php artisan config:clear
 php artisan migrate:fresh --seed
 ```
 
-This creates 34 tables, enables Row Level Security on all of them, and seeds 90 days of realistic
+This creates 38 tables, enables Row Level Security on all of them, and seeds 90 days of realistic
 demo history. Against Supabase from the Philippines it takes **about 5–8 minutes** (≈ 4,800 queries
 across the network) — let it finish. For a faster run, set `SEED_INVENTORY_DAYS=7` in `.env`; for an
 empty production start, set `SEED_DEMO_DATA=false`.

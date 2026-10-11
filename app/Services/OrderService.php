@@ -74,6 +74,10 @@ class OrderService
             }
 
             $discount = ! empty($meta['discount_id']) ? Discount::where('is_active', true)->find($meta['discount_id']) : null;
+            if (! empty($meta['discount_id']) && ! $discount) {
+                // Turned off (or deleted) after the POS page was loaded — never charge a different price silently.
+                throw new BusinessRuleException('That discount is no longer available. Remove it from the order and try again.');
+            }
             if ($discount && $discount->requires_id && blank($meta['discount_id_number'] ?? null)) {
                 throw new BusinessRuleException("An ID number is required for the {$discount->name} discount.");
             }
@@ -270,6 +274,11 @@ class OrderService
 
         if ((float) $order->total_amount <= 0) {
             throw new BusinessRuleException('This order was free (₱0.00), so there is nothing to refund.');
+        }
+        if ($payment?->method === 'cash' && (float) $order->total_amount > $shift->computeExpectedCash()) {
+            // The cash has to physically come out of the drawer; it can't go below ₱0.
+            throw new BusinessRuleException('Only '.peso($shift->computeExpectedCash()).' cash is in the drawer, but this refund is '
+                .peso($order->total_amount).'. Record a Cash in on the Cash drawer page first, then refund.');
         }
 
         return DB::transaction(function () use ($order, $reason, $approver, $by, $at, $payment, $shift) {

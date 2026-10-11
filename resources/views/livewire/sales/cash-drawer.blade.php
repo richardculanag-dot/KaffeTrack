@@ -18,7 +18,7 @@
                         <li class="flex gap-3"><span class="grid size-6 shrink-0 place-items-center rounded-full bg-sage-100 text-xs font-bold">1</span> Open the drawer with the starting cash before the first order.</li>
                         <li class="flex gap-3"><span class="grid size-6 shrink-0 place-items-center rounded-full bg-sage-100 text-xs font-bold">2</span> Cash sales and cash refunds update the expected amount automatically. Card and online payments never touch the drawer.</li>
                         <li class="flex gap-3"><span class="grid size-6 shrink-0 place-items-center rounded-full bg-sage-100 text-xs font-bold">3</span> Record petty cash (e.g. buying ice) as <em>cash out</em> so the count still balances.</li>
-                        <li class="flex gap-3"><span class="grid size-6 shrink-0 place-items-center rounded-full bg-sage-100 text-xs font-bold">4</span> At closing, count each denomination. KaffeTrack adds it up and shows whether the drawer is over or short.</li>
+                        <li class="flex gap-3"><span class="grid size-6 shrink-0 place-items-center rounded-full bg-sage-100 text-xs font-bold">4</span> At closing, first count the sealed stock the shift's sales used (anything not stocked out during the rush is recorded from this count), then count each denomination. KaffeTrack adds it up and shows whether the drawer is over or short.</li>
                     </ol>
                 </div>
             </div>
@@ -60,6 +60,18 @@
                         <button type="button" class="btn-primary" wire:click="startClose"><x-icon name="lock" class="size-4" /> End-of-day count</button>
                     </div>
                 </div>
+                @if ($shift->stockChecks->isNotEmpty())
+                    @php
+                        $lastCheck = $shift->stockChecks->max('checked_at');
+                        $toLook = $shift->stockChecks->filter(fn ($c) => $c->needsAttention())->count();
+                    @endphp
+                    <div class="mx-5 mb-5 flex flex-wrap items-center gap-2 rounded-xl bg-sage-100 px-4 py-3 text-sm text-sage-700">
+                        <x-icon name="package" class="size-4" />
+                        <span><strong>Stock check:</strong> {{ $shift->stockChecks->count() }} count(s), last at {{ $lastCheck->format('g:i A') }} —
+                            {{ $toLook ? $toLook.' with a difference or note' : 'all matched' }}</span>
+                        <button type="button" class="ml-auto font-semibold text-leaf-700 underline" wire:click="$set('viewingId', {{ $shift->id }})">View</button>
+                    </div>
+                @endif
                 @if ($activeOrders)
                     <div class="mx-5 mb-5 flex items-center gap-2 rounded-xl bg-warn-50 px-4 py-3 text-sm text-warn-700">
                         <x-icon name="alert" class="size-4" /> {{ $activeOrders }} order(s) are still pending or ready. They must be completed or cancelled before closing.
@@ -104,6 +116,8 @@
                             <td class="text-right">
                                 @if ((float) $s->variance == 0)
                                     <span class="badge-green">Balanced</span>
+                                @elseif (abs((float) $s->variance) < 1)
+                                    <span class="badge-green" title="Centavos only">Balanced ({{ peso($s->variance) }})</span>
                                 @elseif ($s->variance > 0)
                                     <span class="badge-blue">Over {{ peso($s->variance) }}</span>
                                 @else
@@ -198,10 +212,15 @@
                                     $counted = (int) ($check[$item->id]['counted'] ?? 0);
                                     $wasted = (int) ($check[$item->id]['wasted'] ?? 0);
                                     $missing = max(0, $item->quantity_on_hand - $counted);
-                                    $opened = $missing - $wasted;
+                                    // Same order as the service: expired units first, then thrown away, then opened.
+                                    $expiredOnBooks = $item->availableBatches->filter(fn ($b) => $b->expiry_date && $b->expiry_date->lt(today()))->sum('quantity_remaining');
+                                    $expired = min($missing, $expiredOnBooks);
+                                    $wasted = min($wasted, $missing - $expired);
+                                    $opened = $missing - $expired - $wasted;
                                     $empty = ($check[$item->id]['open_left'] ?? '') === 'no';
                                     $parts = [];
                                     if ($opened > 0) { $parts[] = $opened.' stocked out'.($opened > 1 ? ' ('.($opened - 1).' finished)' : ''); }
+                                    if ($expired > 0) { $parts[] = $expired.' from an expired batch — recorded as expired (written off)'; }
                                     if ($wasted > 0) { $parts[] = $wasted.' thrown away'; }
                                     if ($counted > $item->quantity_on_hand) { $parts[] = 'more than recorded — check for a delivery not entered; stock unchanged'; }
                                     if ($empty && ($item->currentUsage || $opened > 0)) { $parts[] = 'open '.$item->unit.' marked finished'; }
@@ -241,8 +260,9 @@
                 <div class="grid gap-3 sm:grid-cols-3">
                     <div class="rounded-xl bg-sage-100 px-4 py-3"><p class="text-[13px] text-sage-600">Expected</p><p class="font-display text-xl font-semibold tabular">{{ peso($expected) }}</p></div>
                     <div class="rounded-xl bg-sage-100 px-4 py-3"><p class="text-[13px] text-sage-600">Counted</p><p class="font-display text-xl font-semibold tabular">{{ peso($this->counted) }}</p></div>
-                    <div class="rounded-xl px-4 py-3 {{ $variance == 0 ? 'bg-leaf-50 text-leaf-800' : ($variance > 0 ? 'bg-info-50 text-info-600' : 'bg-danger-50 text-danger-700') }}" aria-live="polite">
-                        <p class="text-[13px]">{{ $variance == 0 ? 'Balanced' : ($variance > 0 ? 'Over' : 'Short') }}</p>
+                    @php $centavos = $variance != 0 && abs($variance) < 1; @endphp
+                    <div class="rounded-xl px-4 py-3 {{ $variance == 0 || $centavos ? 'bg-leaf-50 text-leaf-800' : ($variance > 0 ? 'bg-info-50 text-info-600' : 'bg-danger-50 text-danger-700') }}" aria-live="polite">
+                        <p class="text-[13px]">{{ $variance == 0 ? 'Balanced' : ($centavos ? ($variance > 0 ? 'Over' : 'Short').' by centavos only' : ($variance > 0 ? 'Over' : 'Short')) }}</p>
                         <p class="font-display text-xl font-semibold tabular">{{ peso(abs($variance)) }}</p>
                     </div>
                 </div>
@@ -254,8 +274,8 @@
                     </div>
                 @endif
 
-                <x-textarea label="Notes" name="closeNotes" rows="2" wire:model="closeNotes" :optional="$variance == 0" :required="$variance != 0"
-                            :help="$variance != 0 ? 'Required: explain why the drawer is over or short.' : null" placeholder="Anything the manager should know" />
+                <x-textarea label="Notes" name="closeNotes" rows="2" wire:model="closeNotes" :optional="abs($variance) < 1" :required="abs($variance) >= 1"
+                            :help="abs($variance) >= 1 ? 'Required: explain why the drawer is over or short.' : ($variance != 0 ? 'Under ₱1 (centavos from discounted totals) — no explanation needed.' : null)" placeholder="Anything the manager should know" />
             </form>
         @endif
         <x-slot:footer>
@@ -283,15 +303,15 @@
             @php $sum = $viewing->summary(); @endphp
             <dl class="grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
                 <div class="flex justify-between"><dt class="text-sage-600">Opened</dt><dd>{{ $viewing->opener->name }}, {{ $viewing->opened_at->format('g:i A') }}</dd></div>
-                <div class="flex justify-between"><dt class="text-sage-600">Closed</dt><dd>{{ $viewing->closer?->name }}, {{ $viewing->closed_at?->format('g:i A') }}</dd></div>
+                <div class="flex justify-between"><dt class="text-sage-600">Closed</dt><dd>{{ $viewing->closed_at ? $viewing->closer?->name.', '.$viewing->closed_at->format('g:i A') : 'Still open' }}</dd></div>
                 <div class="flex justify-between"><dt class="text-sage-600">Starting cash</dt><dd class="tabular">{{ peso($sum['opening_cash']) }}</dd></div>
                 <div class="flex justify-between"><dt class="text-sage-600">Cash sales</dt><dd class="tabular">{{ peso($sum['cash_sales']) }}</dd></div>
                 <div class="flex justify-between"><dt class="text-sage-600">Card sales</dt><dd class="tabular">{{ peso($sum['card_sales']) }}</dd></div>
                 <div class="flex justify-between"><dt class="text-sage-600">Online sales</dt><dd class="tabular">{{ peso($sum['online_sales']) }}</dd></div>
                 <div class="flex justify-between"><dt class="text-sage-600">Cash refunds</dt><dd class="tabular">{{ peso($sum['cash_refunds']) }}</dd></div>
                 <div class="flex justify-between"><dt class="text-sage-600">Cash in / out</dt><dd class="tabular">{{ peso($sum['cash_in']) }} / {{ peso($sum['cash_out']) }}</dd></div>
-                <div class="flex justify-between font-semibold"><dt>Expected</dt><dd class="tabular">{{ peso($viewing->expected_cash) }}</dd></div>
-                <div class="flex justify-between font-semibold"><dt>Counted</dt><dd class="tabular">{{ peso($viewing->counted_cash) }}</dd></div>
+                <div class="flex justify-between font-semibold"><dt>Expected</dt><dd class="tabular">{{ peso($viewing->status === 'open' ? $sum['expected_cash'] : $viewing->expected_cash) }}</dd></div>
+                <div class="flex justify-between font-semibold"><dt>Counted</dt><dd class="tabular">{{ $viewing->counted_cash !== null ? peso($viewing->counted_cash) : '—' }}</dd></div>
             </dl>
             @if ($viewing->denominations)
                 <h3 class="mb-2 mt-5 text-sm font-semibold text-sage-600">Denomination count</h3>
@@ -302,17 +322,19 @@
                 </div>
             @endif
             @if ($viewing->stockChecks->isNotEmpty())
-                <h3 class="mb-2 mt-5 text-sm font-semibold text-sage-600">End-of-shift stock check · {{ $viewing->stockChecks->first()->checker?->name }}</h3>
+                <h3 class="mb-2 mt-5 text-sm font-semibold text-sage-600">End-of-shift stock check</h3>
                 <div class="overflow-x-auto rounded-xl border border-sage-200">
                     <table class="table">
-                        <thead><tr><th>Item</th><th class="text-right">System had</th><th class="text-right">Counted</th><th>Recorded</th></tr></thead>
+                        <thead><tr><th>Time</th><th>Item</th><th class="text-right">System had</th><th class="text-right">Counted</th><th>Recorded</th><th>By</th></tr></thead>
                         <tbody>
-                            @foreach ($viewing->stockChecks->sortBy(fn ($c) => $c->item?->name) as $c)
+                            @foreach ($viewing->stockChecks->sortBy(fn ($c) => $c->checked_at->format('YmdHis').$c->item?->name) as $c)
                                 <tr>
+                                    <td class="whitespace-nowrap text-sage-600">{{ $c->checked_at->format('g:i A') }}</td>
                                     <td class="font-semibold">{{ $c->item?->name }}</td>
                                     <td class="text-right tabular">{{ $c->expected_sealed }}</td>
                                     <td class="text-right tabular {{ $c->difference() !== 0 ? 'font-semibold text-warn-700' : '' }}">{{ $c->counted_sealed }}</td>
                                     <td class="text-sm">{{ $c->outcome() }}{{ $c->open_unit_finished === true ? ' · open unit finished' : '' }}@if ($c->note)<span class="block text-xs text-sage-500">{{ $c->note }}</span>@endif</td>
+                                    <td class="text-sm text-sage-600">{{ $c->checker?->name }}</td>
                                 </tr>
                             @endforeach
                         </tbody>

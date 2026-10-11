@@ -27,13 +27,17 @@ recipes), never blocks a sale and never changes stock on its own.
    per item), so an open unit and all but the last new one are marked used up.
 5. **At the end of the shift** (Cash drawer → End-of-day count), step 1 is the **stock check**:
    - It lists every item used by orders made in this shift (marked Ready at some point; an order cancelled
-     while pending never used anything).
+     while pending never used anything) that hasn't been counted yet — **or that was sold again after its
+     last count**. If staff count, keep the shift open and sell more, those items are listed again at the
+     next End-of-day count; counting again never records anything twice, because each count is compared
+     with the system's current number.
    - For each item, staff count the **sealed** units left on the shelf (not the open one) and say whether
      the unit open at the bar *still has some* or is *empty*. Optional: how many were thrown away, and a note.
    - The count is **blind**: the system's number is shown only on the review screen, so staff count what is
      really there instead of confirming a number.
    - **"Used something without an order?"** adds any other item to the count (a spill replacement, cups
-     for staff drinks), so stock used in the background is caught at the same moment.
+     for staff drinks), so stock used in the background is caught at the same moment. If the shift had no
+     orders at all, there is no stock check step — record anything used in Stock on hand → Stock out.
    - **Review** shows what will be recorded before anything is saved. If staff say a unit is open but none
      was ever stocked out and none is missing, it warns them to recount; if they keep the answer, the
      manager gets a note.
@@ -43,7 +47,7 @@ recipes), never blocks a sale and never changes stock on its own.
    | Shelf count vs system | Recorded |
    |---|---|
    | Same | Nothing (the open unit stays open, or is marked finished if "empty") |
-   | Fewer by *n* | *n* stock-outs, minus any thrown away (recorded as waste). Units are opened one after another, so all but the last are marked finished; "still has some / empty" decides the last one. |
+   | Fewer by *n* | Expired units come off first and are recorded as **expired** (written off, never as used in drinks); then any thrown away (waste); the rest are stock-outs. Units are opened one after another, so all but the last are marked finished; "still has some / empty" decides the last one. |
    | More | Nothing changes. Noted as "more than recorded — check for a delivery that was not entered" for the manager. |
 
 7. **Step 2 is the cash count**, as before. The drawer cannot be closed until the stock check is done.
@@ -56,12 +60,13 @@ recording anything. At closing staff count 12 and tap *Still has some* → 3 sto
 
 - **Products**: "Uses from inventory" in the product form.
 - **Categories & add-ons**: "Effect on inventory" in the add-on form.
-- **Cash drawer**: End-of-day count → Step 1 Stock check → Step 2 Cash count; *Details* on a closed shift
-  shows its stock check.
+- **Cash drawer**: End-of-day count → Step 1 Stock check → Step 2 Cash count. While the shift is open, its
+  card shows "Stock check: N counts, last at … — View"; *Details* on a closed shift shows every count.
 - **POS**: a drink whose item has nothing in storage and nothing open shows "*Item*: none in stock — check
   before confirming". A label only; it never blocks the sale.
 - **Stock movements**: stock-outs and waste from the check, with the shift number in the reason.
-- **Reports → Inventory**: "End-of-shift stock checks" (how many counts matched, and every difference).
+- **Reports → Inventory**: "End-of-shift stock checks" for shifts opened in the period (how many counts
+  matched, and every difference or note).
 - **Reports → Financial**: "Sales vs cost of stock used": net sales next to the purchase cost of units
   opened and thrown away in the period, per item and as a percentage of sales.
 - **Reports → Cash drawer**: each shift's stock-check result under its cash count.

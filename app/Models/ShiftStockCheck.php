@@ -14,7 +14,7 @@ class ShiftStockCheck extends Model
     public $timestamps = false;
 
     protected $fillable = [
-        'cash_shift_id', 'inventory_item_id', 'expected_sealed', 'counted_sealed', 'stocked_out', 'wasted',
+        'cash_shift_id', 'inventory_item_id', 'expected_sealed', 'counted_sealed', 'stocked_out', 'wasted', 'expired',
         'open_unit_finished', 'note', 'checked_by', 'checked_at',
     ];
 
@@ -25,6 +25,7 @@ class ShiftStockCheck extends Model
             'counted_sealed' => 'integer',
             'stocked_out' => 'integer',
             'wasted' => 'integer',
+            'expired' => 'integer',
             'open_unit_finished' => 'boolean',
             'checked_at' => 'datetime',
         ];
@@ -66,6 +67,9 @@ class ShiftStockCheck extends Model
         }
         if ($this->wasted > 0) {
             $parts[] = $this->wasted.' wasted';
+        }
+        if ($this->expired > 0) {
+            $parts[] = $this->expired.' expired (written off)';
         }
         if ($this->difference() > 0) {
             $parts[] = $this->difference().' more than recorded';

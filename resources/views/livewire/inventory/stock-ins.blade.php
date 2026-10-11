@@ -1,5 +1,5 @@
 <div class="space-y-6">
-    <x-page-header description="Deliveries received from suppliers. Each one adds stock in batches and records the purchase as an expense in Finance.">
+    <x-page-header description="Deliveries received from suppliers. Each one adds stock in batches and, unless you turn it off, records the purchase as an expense in Finance.">
         <x-slot:actions>
             <a href="{{ route('inventory.stock-ins.create') }}" wire:navigate class="btn-primary"><x-icon name="plus" class="size-4" /> Receive stock</a>
         </x-slot:actions>

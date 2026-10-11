@@ -132,7 +132,12 @@
 
     <div class="grid gap-6 xl:grid-cols-5">
         <section class="panel xl:col-span-2">
-            <div class="panel-header"><h2 class="panel-title">Sales by category</h2></div>
+            <div class="panel-header">
+                <div>
+                    <h2 class="panel-title">Gross sales by category</h2>
+                    <p class="text-[13px] text-sage-500">Menu prices before discounts and VAT removal, so it is a little higher than net sales.</p>
+                </div>
+            </div>
             @php $catTotal = max(1, $categories->sum('revenue')); @endphp
             <ul class="space-y-4 p-5">
                 @forelse ($categories as $cat)

@@ -83,30 +83,38 @@ class CashShiftService
     }
 
     /**
-     * Sales ↔ Inventory: the items this shift's sales used that have not been checked yet.
-     * Only drinks that were actually made count (marked Ready at some point); an order cancelled
-     * while still pending never used anything.
+     * Sales ↔ Inventory: the items this shift's sales used that still need counting — never counted in
+     * this shift, or SOLD AGAIN after their last count (the count is absolute, so counting again never
+     * records anything twice). Only drinks that were actually made count (marked Ready at some point);
+     * an order cancelled while pending never used anything.
      *
      * $extraIds adds items staff chose to count although no order used them (e.g. a carton opened to
-     * replace a spilled one, cups for staff drinks).
+     * replace a spilled one, cups for staff drinks) — if they haven't been counted in this shift yet.
      *
      * @param  array<int, int>  $extraIds
-     * @return Collection<int, InventoryItem>  with currentUsage loaded
+     * @return Collection<int, InventoryItem>  with currentUsage and availableBatches loaded
      */
     public function itemsToCheck(CashShift $shift, array $extraIds = []): Collection
     {
-        $used = OrderItemIngredient::query()
+        $lastMade = OrderItemIngredient::query()
             ->join('order_items', 'order_items.id', '=', 'order_item_ingredients.order_item_id')
             ->join('orders', 'orders.id', '=', 'order_items.order_id')
             ->where('orders.cash_shift_id', $shift->id)
             ->whereNotNull('orders.ready_at')
-            ->distinct()
-            ->pluck('order_item_ingredients.inventory_item_id');
+            ->groupBy('order_item_ingredients.inventory_item_id')
+            ->selectRaw('order_item_ingredients.inventory_item_id as item_id, MAX(orders.ready_at) as last_made')
+            ->pluck('last_made', 'item_id');
 
-        $checked = ShiftStockCheck::where('cash_shift_id', $shift->id)->pluck('inventory_item_id');
+        $lastChecked = ShiftStockCheck::where('cash_shift_id', $shift->id)
+            ->groupBy('inventory_item_id')
+            ->selectRaw('inventory_item_id, MAX(checked_at) as last_checked')
+            ->pluck('last_checked', 'inventory_item_id');
 
-        return InventoryItem::with('currentUsage')
-            ->whereIn('id', $used->merge(array_map('intval', $extraIds))->unique()->diff($checked))
+        $due = $lastMade->filter(fn ($made, $id) => ! isset($lastChecked[$id]) || $made >= $lastChecked[$id])->keys();
+        $extra = collect($extraIds)->map(fn ($id) => (int) $id)->reject(fn ($id) => isset($lastChecked[$id]));
+
+        return InventoryItem::with(['currentUsage', 'availableBatches'])
+            ->whereIn('id', $due->merge($extra)->unique()->values())
             ->orderBy('name')
             ->get();
     }
@@ -127,6 +135,8 @@ class CashShiftService
         }
 
         return DB::transaction(function () use ($shift, $lines, $by, $at) {
+            // One stock check at a time per shift (a double click must not count the same items twice).
+            CashShift::whereKey($shift->id)->lockForUpdate()->first();
             $inventory = app(InventoryService::class);
             $results = collect();
             foreach ($this->itemsToCheck($shift, array_keys($lines)) as $item) {
