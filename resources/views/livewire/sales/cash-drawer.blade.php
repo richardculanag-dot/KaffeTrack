@@ -136,7 +136,7 @@
     {{-- End-of-day count --}}
     @php $stockStep = $shift && $checkItems->isNotEmpty(); @endphp
     <x-modal wire:model="showClose" :title="$stockStep ? 'Step 1 of 2 — Stock check' : ($shift?->stockChecks()->exists() ? 'Step 2 of 2 — Cash count' : 'End-of-day count')"
-             :description="$stockStep ? 'Today\'s sales used these items. Count the sealed ones left in storage.' : 'Count each bill and coin in the drawer. The total is calculated for you.'"
+             :description="$stockStep ? 'This shift\'s sales used these items. Count the sealed ones left in storage.' : 'Count each bill and coin in the drawer. The total is calculated for you.'"
              size="lg" :icon="$stockStep ? 'package' : 'lock'">
         @if ($stockStep && ! $checkReview)
             {{-- Sales ↔ Inventory: blind count of sealed units for every item this shift's sales used. --}}
@@ -150,9 +150,14 @@
                          class="rounded-xl border border-sage-200 p-3.5">
                         <div class="grid items-start gap-3 sm:grid-cols-[1fr_9rem_15rem]">
                             <div>
-                                <p class="font-semibold">{{ $item->name }}</p>
+                                <p class="font-semibold">{{ $item->name }}@if (in_array($item->id, $extraCheckIds)) <span class="badge-gray ml-1">Added</span>@endif</p>
                                 <p class="text-xs text-sage-500">per {{ $item->unit }}@if ($item->currentUsage) · open since {{ $item->currentUsage->opened_at->format('M j, g:i A') }}@endif</p>
-                                <button type="button" class="mt-1 text-xs font-semibold text-leaf-700 hover:underline" @click="more = !more" x-text="more ? 'Hide' : 'Some were thrown away?'"></button>
+                                <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                                    <button type="button" class="text-xs font-semibold text-leaf-700 hover:underline" @click="more = !more" x-text="more ? 'Hide' : 'Some were thrown away?'"></button>
+                                    @if (in_array($item->id, $extraCheckIds))
+                                        <button type="button" class="text-xs font-semibold text-sage-500 hover:text-danger-700 hover:underline" wire:click="removeCheckItem({{ $item->id }})">Remove</button>
+                                    @endif
+                                </div>
                             </div>
                             <x-input :label="$loop->first ? 'Sealed left' : null" name="check.{{ $item->id }}.counted" type="number" min="0" step="1" inputmode="numeric"
                                      wire:model="check.{{ $item->id }}.counted" aria-label="Sealed {{ $item->name }} left" placeholder="Count" />
@@ -175,6 +180,10 @@
                         </div>
                     </div>
                 @endforeach
+                <div class="flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-sage-300 p-3">
+                    <x-select label="Used something without an order?" name="addItemId" wire:model="addItemId" :options="$addable" placeholder="Choose an item to count" class="min-w-56 flex-1" optional />
+                    <button type="button" class="btn-secondary" wire:click="addCheckItem"><x-icon name="plus" class="size-4" /> Add to the check</button>
+                </div>
             </form>
         @elseif ($stockStep && $checkReview)
             {{-- Review before anything is recorded. --}}
@@ -197,12 +206,18 @@
                                     if ($counted > $item->quantity_on_hand) { $parts[] = 'more than recorded — check for a delivery not entered; stock unchanged'; }
                                     if ($empty && ($item->currentUsage || $opened > 0)) { $parts[] = 'open '.$item->unit.' marked finished'; }
                                     elseif (! $empty && ($item->currentUsage || $opened > 0)) { $parts[] = 'open '.$item->unit.' stays open'; }
+                                    // Staff say one is open, but none was ever taken out of storage and none is missing now.
+                                    $contradiction = ! $empty && ! $item->currentUsage && $opened === 0 && $counted <= $item->quantity_on_hand;
                                 @endphp
                                 <tr wire:key="rev-{{ $item->id }}">
                                     <td class="font-semibold">{{ $item->name }}</td>
                                     <td class="text-right tabular">{{ $item->quantity_on_hand }}</td>
                                     <td class="text-right tabular {{ $counted !== $item->quantity_on_hand ? 'font-semibold text-warn-700' : '' }}">{{ $counted }}</td>
-                                    <td class="text-sm {{ $parts ? '' : 'text-sage-500' }}">{{ $parts ? ucfirst(implode(' · ', $parts)) : 'Matches — nothing to record' }}</td>
+                                    <td class="text-sm {{ $parts ? '' : 'text-sage-500' }}">{{ $parts ? ucfirst(implode(' · ', $parts)) : 'Matches — nothing to record' }}
+                                        @if ($contradiction)
+                                            <span class="mt-1 block text-xs font-semibold text-warn-700">No open {{ $item->unit }} is recorded. If one is open at the bar, recount the sealed ones — one should be missing. If you keep this answer, the manager gets a note.</span>
+                                        @endif
+                                    </td>
                                 </tr>
                             @endforeach
                         </tbody>
@@ -231,6 +246,13 @@
                         <p class="font-display text-xl font-semibold tabular">{{ peso(abs($variance)) }}</p>
                     </div>
                 </div>
+
+                @if ($addable->isNotEmpty())
+                    <div class="flex flex-wrap items-end gap-2 rounded-xl border border-dashed border-sage-300 p-3">
+                        <x-select label="Stock used without an order this shift?" name="addItemId" wire:model="addItemId" :options="$addable" placeholder="Choose an item to count" class="min-w-56 flex-1" optional />
+                        <button type="button" class="btn-secondary" wire:click="addCheckItem"><x-icon name="package" class="size-4" /> Count it first</button>
+                    </div>
+                @endif
 
                 <x-textarea label="Notes" name="closeNotes" rows="2" wire:model="closeNotes" :optional="$variance == 0" :required="$variance != 0"
                             :help="$variance != 0 ? 'Required: explain why the drawer is over or short.' : null" placeholder="Anything the manager should know" />

@@ -128,35 +128,51 @@ class InventoryService
     }
 
     /**
-     * Take ONE unit out of storage for use at the bar (FEFO batch selection).
+     * Take units out of storage for use at the bar (FEFO batch selection) — usually 1, or several at
+     * once when staff record later ("opened 3 cartons today").
      *
-     * Only one unit of an item is open at a time, so if one is still open it is marked finished
-     * first: opening a new carton means the previous one ran out. Check $finishedPrevious afterwards
-     * to tell the user.
+     * Only one unit of an item is open at a time, so units are opened one after another: a unit that
+     * is still open is marked finished first, and every unit opened here except the last is finished
+     * too. $lastFinished = true also finishes the last one (it was used up as well).
+     * Check $finishedPrevious afterwards to tell the user an open unit was closed.
      */
-    public function stockOut(InventoryItem $item, ?string $notes = null, ?User $by = null, ?Carbon $at = null): ItemUsage
+    public function stockOut(InventoryItem $item, ?string $notes = null, ?User $by = null, ?Carbon $at = null, int $quantity = 1, bool $lastFinished = false): ItemUsage
     {
         $by ??= Auth::user();
         $at ??= now();
         $this->finishedPrevious = null;
 
+        if ($quantity < 1) {
+            throw new BusinessRuleException('Stock out at least 1 unit.');
+        }
+
         try {
-            return DB::transaction(function () use ($item, $notes, $by, $at) {
+            return DB::transaction(function () use ($item, $notes, $by, $at, $quantity, $lastFinished) {
                 $item = InventoryItem::lockForUpdate()->findOrFail($item->id);
                 if ($item->quantity_on_hand <= 0) {
                     throw new BusinessRuleException("{$item->name} is out of stock.");
                 }
-
-                $open = $item->currentUsage()->first();
-                if ($open) {
-                    $this->finishedPrevious = $this->closeUsage($open, ItemUsage::STATUS_DEPLETED, 'Finished — the next unit was opened', $by, $at);
+                if ($quantity > $item->quantity_on_hand) {
+                    throw new BusinessRuleException("Only {$item->quantity_on_hand} {$item->unit} of {$item->name} are in storage.");
                 }
 
-                $usage = $this->openOne($item, $by, $at, $notes, allowExpired: false);
+                $usage = null;
+                for ($i = 0; $i < $quantity; $i++) {
+                    if ($open = $item->currentUsage()->first()) {
+                        $closed = $this->closeUsage($open, ItemUsage::STATUS_DEPLETED, 'Finished — the next unit was opened', $by, $at, audit: $i === 0);
+                        $this->finishedPrevious ??= $i === 0 ? $closed : null;
+                    }
+                    $usage = $this->openOne($item, $by, $at, $notes, allowExpired: false);
+                }
+                if ($lastFinished) {
+                    $this->closeUsage($usage, ItemUsage::STATUS_DEPLETED, 'Used up — recorded with the stock-out', $by, $at, audit: false);
+                }
 
+                $remaining = $item->quantity_on_hand - $quantity;
                 AuditLogger::log('inventory', 'stock_out',
-                    "Stocked out 1 {$item->unit} of {$item->name} (remaining: ".($item->quantity_on_hand - 1).')',
-                    $usage, ['quantity_on_hand' => $item->quantity_on_hand], ['quantity_on_hand' => $item->quantity_on_hand - 1], $by);
+                    "Stocked out {$quantity} {$item->unit} of {$item->name} (remaining: {$remaining})"
+                        .($quantity > 1 ? ' — '.($lastFinished ? 'all used up' : 'the last one is still open') : ($lastFinished ? ' — already used up' : '')),
+                    $usage, ['quantity_on_hand' => $item->quantity_on_hand], ['quantity_on_hand' => $remaining], $by);
 
                 return $usage;
             });
@@ -263,7 +279,7 @@ class InventoryService
                 $this->openOne($item, $by, $at, "Opened during the shift — recorded at the {$label}", allowExpired: true);
             }
 
-            // Is the unit at the bar now empty? Only asked when one is open.
+            // Is the unit at the bar now empty? Only meaningful when one is open.
             $open = $item->currentUsage()->first();
             if ($open) {
                 $finished = (bool) $openFinished;
@@ -271,6 +287,10 @@ class InventoryService
                     $this->closeUsage($open, ItemUsage::STATUS_DEPLETED, "Empty at the {$label}", $by, $at, audit: false);
                 }
                 $check->forceFill(['open_unit_finished' => $finished])->save();
+            } elseif ($openFinished === false && $counted <= $expected) {
+                // Staff say one is open at the bar, but none was ever taken out of storage in the records
+                // (and the shelf count shows none missing). Nothing is guessed — the manager is told.
+                $check->forceFill(['note' => mb_substr(trim('Staff reported an open unit at the bar that was never stocked out — recount or check for an unrecorded delivery. '.($check->note ?? '')), 0, 255)])->save();
             }
 
             AuditLogger::log('inventory', 'shift_stock_check',

@@ -22,8 +22,9 @@ recipes), never blocks a sale and never changes stock on its own.
 3. **Every sold line remembers which items it used**, fixed when the order is placed (like the price), so
    later menu edits never change history.
 4. **During the shift** nothing about inventory appears in the order flow. Staff may still use Stock on
-   hand as before; **Stock out** while a unit is open now marks the old one used up automatically (only one
-   unit per item is open at a time).
+   hand: **Stock out** asks how many units were taken out (default 1, or e.g. 3 when recording later) and
+   whether the last one is in use or already used up. Units are opened one after another (only one is open
+   per item), so an open unit and all but the last new one are marked used up.
 5. **At the end of the shift** (Cash drawer → End-of-day count), step 1 is the **stock check**:
    - It lists every item used by orders made in this shift (marked Ready at some point; an order cancelled
      while pending never used anything).
@@ -31,7 +32,11 @@ recipes), never blocks a sale and never changes stock on its own.
      the unit open at the bar *still has some* or is *empty*. Optional: how many were thrown away, and a note.
    - The count is **blind**: the system's number is shown only on the review screen, so staff count what is
      really there instead of confirming a number.
-   - **Review** shows what will be recorded before anything is saved.
+   - **"Used something without an order?"** adds any other item to the count (a spill replacement, cups
+     for staff drinks), so stock used in the background is caught at the same moment.
+   - **Review** shows what will be recorded before anything is saved. If staff say a unit is open but none
+     was ever stocked out and none is missing, it warns them to recount; if they keep the answer, the
+     manager gets a note.
 6. **What gets recorded** (all in the stock ledger, under the staff member's name, labelled
    "end-of-shift check (shift #N)"):
 

@@ -87,9 +87,13 @@ class CashShiftService
      * Only drinks that were actually made count (marked Ready at some point); an order cancelled
      * while still pending never used anything.
      *
+     * $extraIds adds items staff chose to count although no order used them (e.g. a carton opened to
+     * replace a spilled one, cups for staff drinks).
+     *
+     * @param  array<int, int>  $extraIds
      * @return Collection<int, InventoryItem>  with currentUsage loaded
      */
-    public function itemsToCheck(CashShift $shift): Collection
+    public function itemsToCheck(CashShift $shift, array $extraIds = []): Collection
     {
         $used = OrderItemIngredient::query()
             ->join('order_items', 'order_items.id', '=', 'order_item_ingredients.order_item_id')
@@ -102,7 +106,7 @@ class CashShiftService
         $checked = ShiftStockCheck::where('cash_shift_id', $shift->id)->pluck('inventory_item_id');
 
         return InventoryItem::with('currentUsage')
-            ->whereIn('id', $used->diff($checked))
+            ->whereIn('id', $used->merge(array_map('intval', $extraIds))->unique()->diff($checked))
             ->orderBy('name')
             ->get();
     }
@@ -125,7 +129,7 @@ class CashShiftService
         return DB::transaction(function () use ($shift, $lines, $by, $at) {
             $inventory = app(InventoryService::class);
             $results = collect();
-            foreach ($this->itemsToCheck($shift) as $item) {
+            foreach ($this->itemsToCheck($shift, array_keys($lines)) as $item) {
                 $line = $lines[$item->id] ?? null;
                 if ($line === null || ! isset($line['counted'])) {
                     throw new BusinessRuleException("Count {$item->name} before saving the stock check.");

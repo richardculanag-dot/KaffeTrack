@@ -28,9 +28,9 @@
             </tr>
             @if ($s->notes)<tr><td></td><td colspan="9" class="muted small">Note: {{ $s->notes }}</td></tr>@endif
             @if ($s->stockChecks->isNotEmpty())
-                @php $diff = $s->stockChecks->filter(fn ($c) => $c->outcome() !== 'Matched'); @endphp
+                @php $diff = $s->stockChecks->filter(fn ($c) => $c->needsAttention()); @endphp
                 <tr><td></td><td colspan="9" class="muted small">Stock check: {{ $s->stockChecks->count() }} item(s) counted —
-                    {{ $diff->isEmpty() ? 'all matched' : $diff->map(fn ($c) => $c->item?->name.' ('.$c->outcome().')')->join('; ') }}</td></tr>
+                    {{ $diff->isEmpty() ? 'all matched' : $diff->map(fn ($c) => $c->item?->name.' ('.$c->outcome().($c->note ? ' — '.$c->note : '').')')->join('; ') }}</td></tr>
             @endif
         @empty
             <tr><td colspan="10" class="c muted">No shifts in this period.</td></tr>

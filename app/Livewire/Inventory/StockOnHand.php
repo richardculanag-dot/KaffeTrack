@@ -58,6 +58,13 @@ class StockOnHand extends Component
     public bool $showCategories = false;
     public string $newCategory = '';
     public ?int $renamingId = null;
+
+    // Stock out dialog
+    public bool $showStockOut = false;
+    #[Locked] // set only by the server (open/edit methods), never by the browser
+    public ?int $stockOutId = null;
+    public $stockOutQty = 1;
+    public string $stockOutLast = 'open'; // open | empty — the last unit taken out
     public string $renameValue = '';
 
     public function updating($name): void
@@ -69,13 +76,34 @@ class StockOnHand extends Component
 
     /* ── Bar actions (staff & manager) ──────────────────── */
 
-    public function stockOut(InventoryService $service, int $id): void
+    /** Open the Stock out dialog (usually 1 unit; more when recording later, e.g. "opened 3 today"). */
+    public function startStockOut(int $id): void
     {
-        $item = InventoryItem::findOrFail($id);
-        if ($this->attempt(fn () => $service->stockOut($item))) {
-            // Opening a new unit finishes the previous one (only one is open per item).
-            $this->toast("1 {$item->unit} of {$item->name} is now in use."
-                .($service->finishedPrevious ? ' The previous one was marked as used up.' : ''));
+        $this->resetValidation();
+        $this->stockOutId = InventoryItem::findOrFail($id)->id;
+        $this->stockOutQty = 1;
+        $this->stockOutLast = 'open';
+        $this->showStockOut = true;
+    }
+
+    public function stockOut(InventoryService $service): void
+    {
+        $item = InventoryItem::findOrFail($this->stockOutId);
+        $this->validate([
+            'stockOutQty' => ['required', 'integer', 'min:1', 'max:'.max(1, $item->quantity_on_hand)],
+            'stockOutLast' => ['required', 'in:open,empty'],
+        ], ['stockOutQty.max' => "Only {$item->quantity_on_hand} in storage."], ['stockOutQty' => 'quantity']);
+
+        $qty = (int) $this->stockOutQty;
+        $usage = $this->attempt(fn () => $service->stockOut($item, null, null, null, $qty, $this->stockOutLast === 'empty'));
+        if ($usage) {
+            $this->showStockOut = false;
+            // Units are opened one after another (one open per item): earlier ones are marked used up.
+            $this->toast($qty === 1
+                ? "1 {$item->unit} of {$item->name} ".($this->stockOutLast === 'empty' ? 'recorded as used up.' : 'is now in use.')
+                    .($service->finishedPrevious ? ' The previous one was marked as used up.' : '')
+                : "{$qty} {$item->unit} of {$item->name} stocked out — "
+                    .($this->stockOutLast === 'empty' ? 'all marked as used up.' : 'the last one is in use, the others are marked used up.'));
             $this->dispatch('stock-changed');
         }
     }
@@ -283,6 +311,7 @@ class StockOnHand extends Component
             'categories' => ItemCategory::withCount('items')->orderBy('name')->get(),
             'suppliers' => Supplier::active()->orderBy('name')->pluck('name', 'id'),
             'history' => $history,
+            'stockingOut' => $this->stockOutId ? InventoryItem::with('currentUsage.opener')->find($this->stockOutId) : null,
             'adjusting' => $this->adjustingId ? InventoryItem::with(['availableBatches'])->find($this->adjustingId) : null,
         ]);
     }

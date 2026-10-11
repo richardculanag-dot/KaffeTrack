@@ -1,5 +1,20 @@
 # Changes after the initial build
 
+## Update 3.1 — Stock out quantity, counting unlisted items, open-unit warning
+
+No database change.
+
+- **Stock on hand → Stock out** opens a small dialog: how many were taken out of storage (default 1) and
+  whether the last one is *in use now* or *already used up*. Recording 3 cartons at once is one step; units
+  are opened one after another, so the earlier ones are marked used up. Each unit is still its own ledger
+  line (keeps expiry order and costs correct).
+- **End-of-shift stock check → "Used something without an order?"** adds any item to the count (a carton
+  opened to replace a spill, cups for staff drinks…). Also available from the cash-count step
+  (*Count it first*). Added items can be removed before saving.
+- **Contradiction warning:** if staff say an open unit *still has some* but none was ever stocked out and
+  none is missing from the shelf, the review screen warns them to recount. If they keep the answer, the
+  check saves a note for the manager (shift details, Inventory and Cash drawer reports).
+
 ## Update 3 — Simpler Sales ↔ Inventory link: end-of-shift stock check
 
 **Why:** the Update 1 integration estimated "drinks per container" and interrupted staff during service

@@ -30,6 +30,9 @@ class CashDrawer extends Component
     // End-of-shift stock check (Sales ↔ Inventory): item id => [counted, wasted, open_left (yes|no), note]
     public array $check = [];
     public bool $checkReview = false;
+    /** Items added by staff that no order used (counted the same way). */
+    public array $extraCheckIds = [];
+    public $addItemId = '';
 
     public $viewingId = null; // untyped: the modal sets it to false when closed
 
@@ -93,6 +96,8 @@ class CashDrawer extends Component
         $this->closeNotes = '';
         $this->check = [];
         $this->checkReview = false;
+        $this->extraCheckIds = [];
+        $this->addItemId = '';
         $this->showClose = true;
     }
 
@@ -102,6 +107,22 @@ class CashDrawer extends Component
      * on the review step, so staff count what is really there instead of confirming a number.
      */
 
+    /** Count an item no order used (used in the background: spills, staff drinks, supplies). */
+    public function addCheckItem(): void
+    {
+        $this->validate(['addItemId' => ['required', \Illuminate\Validation\Rule::exists('inventory_items', 'id')->whereNull('deleted_at')]],
+            ['addItemId.required' => 'Choose an item.'], ['addItemId' => 'item']);
+        $this->extraCheckIds = array_values(array_unique([...$this->extraCheckIds, (int) $this->addItemId]));
+        $this->addItemId = '';
+        $this->checkReview = false;
+    }
+
+    public function removeCheckItem(int $id): void
+    {
+        $this->extraCheckIds = array_values(array_diff($this->extraCheckIds, [$id]));
+        unset($this->check[$id]);
+    }
+
     /** Validate the counts and show what will be recorded (nothing is saved yet). */
     public function reviewStockCheck(CashShiftService $service): void
     {
@@ -109,7 +130,7 @@ class CashDrawer extends Component
         if (! $shift) {
             return;
         }
-        $items = $service->itemsToCheck($shift);
+        $items = $service->itemsToCheck($shift, $this->extraCheckIds);
 
         $rules = [];
         foreach ($items as $item) {
@@ -146,7 +167,8 @@ class CashDrawer extends Component
         if (! $shift || ! $this->checkReview) {
             return;
         }
-        $lines = collect($this->check)->map(fn ($l) => [
+        $items = $service->itemsToCheck($shift, $this->extraCheckIds)->pluck('id')->all();
+        $lines = collect($this->check)->only($items)->map(fn ($l) => [
             'counted' => (int) ($l['counted'] ?? 0),
             'wasted' => (int) ($l['wasted'] ?? 0),
             'open_finished' => ($l['open_left'] ?? '') === 'no',
@@ -162,6 +184,7 @@ class CashDrawer extends Component
                 .'. Now count the cash.');
             $this->check = [];
             $this->checkReview = false;
+            $this->extraCheckIds = [];
             $this->dispatch('stock-changed');
         } else {
             $this->checkReview = false; // something changed (e.g. a new sale); review again
@@ -206,11 +229,16 @@ class CashDrawer extends Component
     public function render()
     {
         $shift = CashShift::with(['opener', 'cashMovements.user'])->where('status', 'open')->first();
-        $checkItems = $shift && $this->showClose ? app(CashShiftService::class)->itemsToCheck($shift) : collect();
+        $checkItems = $shift && $this->showClose ? app(CashShiftService::class)->itemsToCheck($shift, $this->extraCheckIds) : collect();
+        $addable = $shift && $this->showClose
+            ? \App\Models\InventoryItem::active()->whereNotIn('id', $checkItems->pluck('id'))
+                ->whereNotIn('id', $shift->stockChecks()->pluck('inventory_item_id'))->orderBy('name')->pluck('name', 'id')
+            : collect();
 
         return view('livewire.sales.cash-drawer', [
             'shift' => $shift,
             'checkItems' => $checkItems,
+            'addable' => $addable,
             'summary' => $shift?->summary(),
             'activeOrders' => $shift ? Order::where('cash_shift_id', $shift->id)->activeQueue()->count() : 0,
             'history' => CashShift::with(['opener', 'closer'])->where('status', 'closed')->latest('opened_at')->paginate(10),

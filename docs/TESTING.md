@@ -90,6 +90,12 @@ errors and no browser console errors. At 390 px width no page scrolls horizontal
 | SI-14 | Reports → Inventory PDF | "End-of-shift stock checks": matched count and every difference |
 | SI-15 | Reports → Financial PDF | "Sales vs cost of stock used": net sales, cost of units opened and thrown away, % of sales |
 | SI-16 | POS: a drink whose item has 0 in storage and none open | "*Item*: none in stock — check before confirming"; the sale still goes through |
+| SI-17 | Stock on hand → Stock out → quantity 3, "In use now" | Storage −3; three ledger lines; the first two (and any unit open before) marked used up, the last open |
+| SI-18 | Stock out → quantity more than storage | "Only N in storage"; nothing recorded |
+| SI-19 | Stock out → 1, "Already used up" | Storage −1; nothing left open |
+| SI-20 | Stock check → "Used something without an order?" → add 16 oz Cold Cups, count 2 fewer | Listed with "Added"; review "2 stocked out"; recorded |
+| SI-21 | Stock check: item with no open unit, count matches, "Still has some" | Review warns to recount; after saving, the check has a manager note |
+| SI-22 | Cash count step → "Count it first" with an item | Returns to Step 1 with that item |
 
 ## Update 2 — validation and safety
 

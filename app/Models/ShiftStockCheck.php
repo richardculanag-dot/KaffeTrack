@@ -51,6 +51,12 @@ class ShiftStockCheck extends Model
         return $this->counted_sealed - $this->expected_sealed;
     }
 
+    /** Worth a manager's look: the shelf differed from the records, or staff left a note. */
+    public function needsAttention(): bool
+    {
+        return $this->outcome() !== 'Matched' || filled($this->note);
+    }
+
     /** Short description for lists and reports, e.g. "2 stocked out · 1 wasted" or "Matched". */
     public function outcome(): string
     {

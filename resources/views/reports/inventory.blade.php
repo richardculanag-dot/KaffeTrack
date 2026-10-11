@@ -65,10 +65,10 @@
 
 <h2>End-of-shift stock checks</h2>
 @php
-    $differences = $stock_checks->filter(fn ($c) => $c->outcome() !== 'Matched');
+    $differences = $stock_checks->filter(fn ($c) => $c->needsAttention());
     $shiftCount = $stock_checks->pluck('cash_shift_id')->unique()->count();
 @endphp
-<p class="small">{{ $stock_checks->count() }} item count(s) across {{ $shiftCount }} shift(s): {{ $stock_checks->count() - $differences->count() }} matched the records, {{ $differences->count() }} did not. Only the differences are listed.</p>
+<p class="small">{{ $stock_checks->count() }} item count(s) across {{ $shiftCount }} shift(s): {{ $stock_checks->count() - $differences->count() }} matched the records, {{ $differences->count() }} need a look. Only those are listed.</p>
 <table>
     <thead><tr><th>Checked</th><th>Item</th><th class="r">System had</th><th class="r">Counted</th><th>Recorded</th><th>By</th></tr></thead>
     <tbody>

@@ -107,7 +107,7 @@
                                     @endif
                                     {{-- Opening a new unit while one is open marks the old one used up (one open unit per item). --}}
                                     <button type="button" class="{{ $usage ? 'btn-secondary' : 'btn-primary' }} btn-sm" @disabled($item->quantity_on_hand <= 0 || ! $item->is_active)
-                                            @click="$confirm({ title: @js('Stock out 1 '.$item->unit.'?'), message: @js('One unit of '.$item->name.' leaves storage and is marked as in use at the bar. '.($item->quantity_on_hand - 1).' will remain in storage.'.($usage ? ' The '.$item->unit.' open now will be marked as used up.' : '')), confirmText: 'Stock out' }, () => $wire.stockOut({{ $item->id }}))">
+                                            wire:click="startStockOut({{ $item->id }})">
                                         <x-icon name="box-open" class="size-4" /> Stock out
                                     </button>
 
@@ -230,6 +230,39 @@
             @endif
         </div>
     </div>
+
+
+    {{-- Stock out (staff & manager): usually 1; more when recording later, e.g. "opened 3 today". --}}
+    <x-modal wire:model="showStockOut" :title="$stockingOut ? 'Stock out '.$stockingOut->name : 'Stock out'"
+             :description="$stockingOut ? $stockingOut->quantity_on_hand.' '.$stockingOut->unit.' in storage' : null" size="sm" icon="box-open">
+        @if ($stockingOut)
+            <form id="stockout-form" wire:submit="stockOut" class="space-y-4">
+                <x-input label="How many did you take out of storage?" name="stockOutQty" type="number" min="1" max="{{ $stockingOut->quantity_on_hand }}" step="1" inputmode="numeric"
+                         wire:model.live.debounce.300ms="stockOutQty" required class="max-w-40" />
+                <div>
+                    <span class="field-label">{{ (int) $stockOutQty > 1 ? 'The last one you took out' : 'This one' }}</span>
+                    <div class="grid grid-cols-2 gap-1 rounded-xl bg-sage-100 p-1" role="radiogroup" aria-label="Is it still in use?">
+                        @foreach (['open' => 'In use now', 'empty' => 'Already used up'] as $val => $text)
+                            <label class="cursor-pointer">
+                                <input type="radio" class="peer sr-only" value="{{ $val }}" wire:model.live="stockOutLast">
+                                <span class="block rounded-lg px-2 py-1.5 text-center text-sm font-semibold text-sage-600 transition peer-checked:bg-white peer-checked:text-ink peer-checked:shadow-sm peer-focus-visible:ring-2 peer-focus-visible:ring-leaf-500">{{ $text }}</span>
+                            </label>
+                        @endforeach
+                    </div>
+                </div>
+                <p class="rounded-xl bg-sage-100 px-3.5 py-2.5 text-sm text-sage-700">
+                    @php $n = max(1, (int) $stockOutQty); @endphp
+                    {{ $n }} {{ $stockingOut->unit }} leave{{ $n === 1 ? 's' : '' }} storage ({{ max(0, $stockingOut->quantity_on_hand - $n) }} will remain).
+                    @if ($stockingOut->currentUsage) The one open now (since {{ $stockingOut->currentUsage->opened_at->format('M j, g:i A') }}) will be marked used up.@endif
+                    @if ($n > 1) Only one is open at a time, so the earlier ones are marked used up.@endif
+                </p>
+            </form>
+        @endif
+        <x-slot:footer>
+            <button type="button" class="btn-secondary" @click="show = false">Cancel</button>
+            <x-submit form="stockout-form" target="stockOut">Stock out</x-submit>
+        </x-slot:footer>
+    </x-modal>
 
     @if ($isManager)
         {{-- Item form --}}
